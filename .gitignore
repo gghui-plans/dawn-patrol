@@ -1,0 +1,4 @@
+.DS_Store
+node_modules/
+# local backup of the original version, kept out of history
+*.zip

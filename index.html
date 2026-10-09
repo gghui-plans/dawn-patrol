@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090e1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dawn Patrol">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px system-ui,-apple-system,sans-serif}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Dawn Patrol</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a single-column sky and wind instrument. Live sky-over-water scene on top, the go/no-go answer under it, then a scrubbable day timeline, then the almanac and settings. Deliberately dark in both host themes: it is a sky at night as often as by day. */
+:root{
+  --bg:#090e1a;
+  --panel:#101829;
+  --panel-2:#16203a;
+  --line:#24324f;
+  --fg:#e9eef6;
+  --dim:#95a2bb;
+  --sun:#f4a259;
+  --go:#5fd49b;
+  --maybe:#f2c55a;
+  --nogo:#ff7b6b;
+  --display:"Archivo","Arial Narrow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.app{max-width:880px;margin:0 auto;padding-inline:16px;padding-block:14px 48px;display:grid;gap:14px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--display);font-stretch:68%;font-weight:800;font-size:22px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.brand i{width:22px;height:11px;border-radius:22px 22px 0 0;background:linear-gradient(var(--sun),#e0603f);display:inline-block;position:relative;top:-2px;box-shadow:0 5px 0 -3px var(--sun)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:5px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+.chip b{color:var(--fg);font-weight:600}
+.chip.preview{border-color:#5a4a26;color:#e8cf8f}
+.chip.live{border-color:#245a43;color:#9ee6c2}
+
+/* scene */
+.scene{position:relative;height:clamp(360px,62vh,600px);border-radius:18px;overflow:hidden;background:#04060c;isolation:isolate}
+.scene canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(3,6,14,.42),rgba(3,6,14,0) 30%,rgba(3,6,14,0) 62%,rgba(3,6,14,.55));z-index:1}
+.hud{position:absolute;z-index:2;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.45)}
+.hud-time{top:14px;left:16px;right:96px}
+.clock{font-family:var(--display);font-stretch:62%;font-weight:700;font-size:clamp(46px,12vw,68px);line-height:.9;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.clock small{font-size:.36em;font-weight:600;letter-spacing:.04em;margin-left:4px}
+.phase{margin-top:8px;font-family:var(--display);font-stretch:85%;font-weight:600;font-size:17px}
+.alt{font-family:var(--mono);font-size:12px;opacity:.85;margin-top:2px}
+.gauge{top:18px;right:14px;width:82px;height:184px}
+.gauge .rail{position:absolute;right:8px;top:0;bottom:0;width:2px;background:linear-gradient(#ffffff55,#ffffff22)}
+.gauge .tick{position:absolute;right:4px;display:flex;align-items:center;gap:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;line-height:1;white-space:nowrap;color:#ffffffcc}
+.gauge .tick::after{content:"";width:10px;height:1px;background:#ffffffaa}
+.gauge .tick.zero{color:#fff;font-weight:600}
+.gauge .tick.zero::after{width:14px;height:2px;background:#fff}
+.gauge .dot{position:absolute;right:3px;width:12px;height:12px;border-radius:50%;transform:translateY(-50%);background:var(--sun);box-shadow:0 0 12px 3px #f4a25988;transition:top .2s linear}
+.gauge .dot.below{background:#f4a25966;box-shadow:none;border:1px solid #f4a259}
+.hud-wind{left:16px;bottom:14px;right:16px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;opacity:.8}
+.windnum{display:flex;align-items:flex-end;gap:10px}
+.speed{font-family:var(--display);font-stretch:62%;font-weight:700;font-size:clamp(44px,11vw,60px);line-height:.85;font-variant-numeric:tabular-nums}
+.speed small{font-size:.32em;font-weight:600;letter-spacing:.03em;margin-left:3px}
+.windmeta{font-size:13px;line-height:1.35;padding-bottom:2px;white-space:nowrap}
+.windmeta b{font-weight:700}
+.arrow{width:30px;height:30px;flex:none;margin-bottom:4px}
+.facing{font-family:var(--mono);font-size:11px;text-align:right;opacity:.85;line-height:1.5}
+.nogl{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--dim);background:linear-gradient(#0d1430,#3a4f93 60%,#d9875f);z-index:0}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{flex:1;min-width:0;border:1px solid var(--line);background:transparent;border-radius:10px;padding:8px 6px;cursor:pointer;text-align:center;line-height:1.15}
+.tab span{display:block;font-family:var(--display);font-stretch:80%;font-weight:700;font-size:15px}
+.tab em{display:block;font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:2px}
+.tab[aria-selected="true"]{background:var(--panel-2);border-color:#3a4c75}
+.tab .mini{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.verdict{display:grid;gap:6px}
+.vrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;padding:5px 10px;border-radius:999px;color:#0a0f1c}
+.pill.go{background:var(--go)} .pill.maybe{background:var(--maybe)} .pill.nogo{background:var(--nogo)} .pill.over{background:var(--dim)}
+.vhead{font-family:var(--display);font-stretch:78%;font-weight:700;font-size:clamp(24px,6vw,30px);line-height:1.1;text-wrap:balance;margin:0}
+.vwin{font-family:var(--display);font-stretch:90%;font-weight:600;font-size:18px;color:var(--fg)}
+.vwin .mono{font-family:var(--mono);font-weight:600;font-size:16px}
+.vsub{color:var(--dim);max-width:62ch;margin:0}
+.jump{justify-self:start;margin-top:4px;border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+
+.tl-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.tl-title{font-family:var(--display);font-stretch:80%;font-weight:700;font-size:16px}
+.nowbtn{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+.nowbtn[aria-pressed="true"]{border-color:#245a43;color:#9ee6c2}
+.tlwrap{position:relative;border-radius:10px;outline-offset:3px}
+#tl{width:100%;height:132px;display:block;touch-action:pan-y;cursor:ew-resize}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dim)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.note{font-size:12.5px;color:var(--dim);margin:10px 0 0;max-width:70ch}
+.note b{color:#e8cf8f;font-weight:600}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+.h3{font-family:var(--display);font-stretch:80%;font-weight:700;font-size:16px;margin:0 0 10px}
+.almanac{list-style:none;margin:0;padding:0;display:grid}
+.almanac li{display:grid;grid-template-columns:12px 1fr auto auto;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer}
+.almanac li:hover{background:var(--panel-2)}
+.almanac li.cur{background:var(--panel-2);box-shadow:inset 0 0 0 1px #3a4c75}
+.almanac .d{width:10px;height:10px;border-radius:50%}
+.almanac .n{min-width:0}
+.almanac .deg{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.almanac .t{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;text-align:right;min-width:68px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:8px 14px;margin:0}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0;font-family:var(--mono);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+.moonrow{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+#moonic{width:46px;height:46px;flex:none}
+.moonname{font-family:var(--display);font-stretch:85%;font-weight:700;font-size:18px}
+.moonsub{color:var(--dim);font-size:13px}
+
+details.panel summary{cursor:pointer;font-family:var(--display);font-stretch:80%;font-weight:700;font-size:16px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.panel summary::-webkit-details-marker{display:none}
+details.panel summary::after{content:"+";font-family:var(--mono);color:var(--dim);font-size:18px}
+details[open].panel summary::after{content:"–"}
+.form{display:grid;gap:14px;margin-top:14px}
+.fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+label.f{display:grid;gap:5px;font-size:12.5px;color:var(--dim)}
+.f input[type=text],.f input[type=number]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--fg);font:inherit;font-family:var(--mono);font-size:13px;min-width:0;width:100%;box-sizing:border-box}
+.f input[type=range]{width:100%;accent-color:var(--sun)}
+.f output{font-family:var(--mono);color:var(--fg)}
+label.f.chk{display:flex;align-items:flex-start;gap:8px}
+.chk input{margin:2px 0 0;accent-color:var(--sun);flex:none}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:13.5px}
+.btn.primary{background:var(--sun);border-color:var(--sun);color:#1a1205;font-weight:700}
+.msg{font-size:12.5px;color:var(--dim)}
+@media (prefers-reduced-motion:reduce){.gauge .dot{transition:none}}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><i aria-hidden="true"></i>Dawn Patrol</div>
+    <div class="chips">
+      <span class="chip" id="locchip"><b>Toronto</b> 43.65, −79.38</span>
+      <span class="chip" id="datachip">Loading wind</span>
+    </div>
+  </header>
+
+  <section class="scene" id="scene" aria-label="Sky and water at the selected time">
+    <canvas id="sky"></canvas>
+    <div class="scrim"></div>
+    <div class="hud hud-time">
+      <div class="clock" id="clock">6:55<small>am</small></div>
+      <div class="phase" id="phase">Civil twilight</div>
+      <div class="alt" id="alt">Sun 3.1° below the horizon</div>
+    </div>
+    <div class="hud gauge" aria-hidden="true">
+      <div class="rail"></div>
+      <div class="tick zero" style="top:55.6%">0°</div>
+      <div class="tick" style="top:66.7%">−6 civil</div>
+      <div class="tick" style="top:77.8%">−12 naut.</div>
+      <div class="tick" style="top:88.9%">−18 astro</div>
+      <div class="dot" id="gdot" style="top:60%"></div>
+    </div>
+    <div class="hud hud-wind">
+      <div>
+        <div class="eyebrow">Wind</div>
+        <div class="windnum">
+          <div class="speed" id="spd">12<small>km/h</small></div>
+          <svg class="arrow" id="arrow" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="13.5" fill="none" stroke="#ffffff66"/><path d="M15 5 L20 17 L15 14.5 L10 17 Z" fill="#fff"/><text x="15" y="27.5" text-anchor="middle" font-size="5.5" fill="#ffffffaa" font-family="monospace">N</text></svg>
+          <div class="windmeta"><div>gusts <b id="gst">19</b> km/h</div><div id="wdir">from WSW</div><div id="wbeau">gentle breeze</div></div>
+        </div>
+      </div>
+      <div class="facing" id="facing">Facing E<br>sun 96°</div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="vh">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="verdict" id="verdict">
+      <div class="vrow"><span class="pill over" id="vpill">LOADING</span><span class="vwin" id="vwin"></span></div>
+      <h2 class="vhead" id="vh">Checking the wind…</h2>
+      <p class="vsub" id="vsub"></p>
+      <button class="jump" id="vjump" type="button" hidden>Show me the window</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="tlt">
+    <div class="tl-head">
+      <div class="tl-title" id="tlt">Drag through the day</div>
+      <button class="nowbtn" id="nowbtn" type="button" aria-pressed="true">Now</button>
+    </div>
+    <div class="tlwrap" id="tlwrap" tabindex="0" role="slider" aria-label="Time of day" aria-valuemin="0" aria-valuemax="1440" aria-valuenow="0">
+      <canvas id="tl"></canvas>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--go)"></i>Calm</span>
+      <span><i class="sw" style="background:var(--maybe)"></i>Manageable</span>
+      <span><i class="sw" style="background:var(--nogo)"></i>Rough</span>
+      <span>Bars: sustained wind · ticks: gusts · faded: outside daylight</span>
+    </div>
+    <p class="note" id="datanote"></p>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h3 class="h3">Light</h3>
+      <ul class="almanac" id="almanac"></ul>
+    </section>
+    <section class="panel">
+      <h3 class="h3">Moon and day</h3>
+      <div class="moonrow">
+        <svg id="moonic" viewBox="0 0 46 46" aria-hidden="true"></svg>
+        <div><div class="moonname" id="moonname">Waning crescent</div><div class="moonsub" id="moonsub">22% lit</div></div>
+      </div>
+      <dl class="kv" id="daykv"></dl>
+    </section>
+  </div>
+
+  <details class="panel" id="settings">
+    <summary>Location and wind limits</summary>
+    <div class="form">
+      <div class="fr">
+        <label class="f">Place name<input type="text" id="lname" autocomplete="off"></label>
+        <label class="f">Latitude<input type="number" id="llat" step="0.0001" min="-90" max="90"></label>
+        <label class="f">Longitude<input type="number" id="llon" step="0.0001" min="-180" max="180"></label>
+      </div>
+      <div class="btns">
+        <button class="btn primary" id="lsave" type="button">Save location</button>
+        <button class="btn" id="lgeo" type="button">Use my location</button>
+        <span class="msg" id="lmsg" role="status"></span>
+      </div>
+      <div class="fr">
+        <label class="f">Calm: gusts up to <output id="ogood">25 km/h</output><input type="range" id="rgood" min="10" max="40" step="1"></label>
+        <label class="f">Rough: gusts above <output id="orough">35 km/h</output><input type="range" id="rrough" min="15" max="60" step="1"></label>
+      </div>
+      <label class="f chk"><input type="checkbox" id="cglow">City glow on the night horizon. Turn it off for a dark spot away from city lights.</label>
+      <p class="msg">Sustained wind limits follow the gust limits at about 60 percent (25 km/h gusts means roughly 15 km/h steady). Set them to whatever counts as calm and rough for you. Windows only count civil daylight, dawn to dusk. A rain chance of 50 percent or more downgrades a calm hour to manageable.</p>
+    </div>
+  </details>
+</div>
+
+<script>
+/* ---------- small helpers ---------- */
+const $=s=>document.querySelector(s);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const sstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+const pad=n=>String(n).padStart(2,'0');
+/* Times are shown in the location's own time zone (loc.tz, from Open-Meteo), not the device's.
+   Until it is known, the device's zone is used and the location chip says so. */
+const dtfCache={};
+const dtf=tz=>dtfCache[tz||'']||(dtfCache[tz||'']=new Intl.DateTimeFormat('en-CA',{timeZone:tz||undefined,hourCycle:'h23',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric'}));
+const okTz=tz=>{try{dtf(tz);return true}catch(e){return false}};
+const DEVICE_TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const wall=t=>{const p={};for(const x of dtf(loc.tz).formatToParts(new Date(t)))p[x.type]=+x.value;return{y:p.year,mo:p.month-1,d:p.day,h:p.hour%24,mi:p.minute,s:p.second}};
+const zoned=(y,mo,d,h=0,mi=0)=>{ // wall-clock time at the location -> epoch ms (Date.UTC handles day overflow)
+  const g=Date.UTC(y,mo,d,h,mi),off=t=>{const w=wall(t);return Date.UTC(w.y,w.mo,w.d,w.h,w.mi,w.s)-Math.floor(t/1000)*1000};
+  return g-off(g-off(g))};
+const fmt=d=>{if(!d||isNaN(d))return '—';const w=wall(d);return `${w.h%12||12}:${pad(w.mi)} ${w.h<12?'am':'pm'}`};
+const fmtShort=d=>{const w=wall(d);return `${w.h%12||12}:${pad(w.mi)}`};
+const fmtDate=(t,o)=>new Date(t).toLocaleDateString('en-CA',{...o,timeZone:loc.tz||undefined});
+const tzAbbr=t=>{const p=new Intl.DateTimeFormat('en-CA',{timeZone:loc.tz||undefined,timeZoneName:'short'}).formatToParts(new Date(t)).find(x=>x.type==='timeZoneName');return p?p.value:''};
+const DEG=Math.PI/180, HOUR=36e5, MIN=6e4;
+const CARD=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const card=deg=>CARD[Math.round(((deg%360)+360)%360/22.5)%16];
+const BEAU=[[1,'calm'],[6,'light air'],[12,'light breeze'],[20,'gentle breeze'],[29,'moderate breeze'],[39,'fresh breeze'],[50,'strong breeze'],[62,'near gale'],[75,'gale'],[999,'strong gale']];
+const beau=k=>BEAU.find(b=>k<b[0])[1];
+const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- sun and moon (after SunCalc by V. Agafonkin, BSD) ---------- */
+const SC=(()=>{const PI=Math.PI,rad=PI/180,dayMs=864e5,J1970=2440588,J2000=2451545,e=rad*23.4397;
+const toJ=d=>d.valueOf()/dayMs-0.5+J1970, fromJ=j=>new Date((j+0.5-J1970)*dayMs), toDays=d=>toJ(d)-J2000;
+const ra=(l,b)=>Math.atan2(Math.sin(l)*Math.cos(e)-Math.tan(b)*Math.sin(e),Math.cos(l));
+const dec=(l,b)=>Math.asin(Math.sin(b)*Math.cos(e)+Math.cos(b)*Math.sin(e)*Math.sin(l));
+const az=(H,phi,d)=>Math.atan2(Math.sin(H),Math.cos(H)*Math.sin(phi)-Math.tan(d)*Math.cos(phi));
+const alt=(H,phi,d)=>Math.asin(Math.sin(phi)*Math.sin(d)+Math.cos(phi)*Math.cos(d)*Math.cos(H));
+const sid=(d,lw)=>rad*(280.16+360.9856235*d)-lw;
+const M_=d=>rad*(357.5291+0.98560028*d);
+const L_=M=>M+rad*(1.9148*Math.sin(M)+0.02*Math.sin(2*M)+0.0003*Math.sin(3*M))+rad*102.9372+PI;
+const sunC=d=>{const L=L_(M_(d));return{dec:dec(L,0),ra:ra(L,0)}};
+function getPosition(date,lat,lng){const lw=rad*-lng,phi=rad*lat,d=toDays(date),c=sunC(d),H=sid(d,lw)-c.ra;return{azimuth:az(H,phi,c.dec),altitude:alt(H,phi,c.dec)}}
+const J0=0.0009, cyc=(d,lw)=>Math.round(d-J0-lw/(2*PI)), apx=(Ht,lw,n)=>J0+(Ht+lw)/(2*PI)+n;
+const transit=(ds,M,L)=>J2000+ds+0.0053*Math.sin(M)-0.0069*Math.sin(2*L);
+const ha=(h,phi,d)=>Math.acos((Math.sin(h)-Math.sin(phi)*Math.sin(d))/(Math.cos(phi)*Math.cos(d)));
+const TIMES=[[-0.833,'sunrise','sunset'],[-6,'dawn','dusk'],[-12,'nauticalDawn','nauticalDusk'],[-18,'nightEnd','night'],[6,'goldenHourEnd','goldenHour'],[-4,'blueEnd','blueStart']];
+function getTimes(date,lat,lng){const lw=rad*-lng,phi=rad*lat,d=toDays(date),n=cyc(d,lw),ds=apx(0,lw,n),M=M_(ds),L=L_(M),de=dec(L,0),Jn=transit(ds,M,L);
+const r={solarNoon:fromJ(Jn),nadir:fromJ(Jn-0.5)};
+for(const [a,rise,set] of TIMES){const w=ha(a*rad,phi,de),Js=transit(apx(w,lw,n),M,L),Jr=Jn-(Js-Jn);r[rise]=fromJ(Jr);r[set]=fromJ(Js)}return r}
+function moonC(d){const L=rad*(218.316+13.176396*d),M=rad*(134.963+13.064993*d),F=rad*(93.272+13.229350*d),l=L+rad*6.289*Math.sin(M),b=rad*5.128*Math.sin(F);return{ra:ra(l,b),dec:dec(l,b),dist:385001-20905*Math.cos(M)}}
+const refr=h=>{if(h<0)h=0;return 0.0002967/Math.tan(h+0.00312536/(h+0.08901179))};
+function getMoonPosition(date,lat,lng){const lw=rad*-lng,phi=rad*lat,d=toDays(date),c=moonC(d),H=sid(d,lw)-c.ra;let h=alt(H,phi,c.dec);h+=refr(h);return{azimuth:az(H,phi,c.dec),altitude:h}}
+function getMoonIllumination(date){const d=toDays(date),s=sunC(d),m=moonC(d),sd=149598000;
+const phi=Math.acos(Math.sin(s.dec)*Math.sin(m.dec)+Math.cos(s.dec)*Math.cos(m.dec)*Math.cos(s.ra-m.ra)),inc=Math.atan2(sd*Math.sin(phi),m.dist-sd*Math.cos(phi)),
+ang=Math.atan2(Math.cos(s.dec)*Math.sin(s.ra-m.ra),Math.sin(s.dec)*Math.cos(m.dec)-Math.cos(s.dec)*Math.sin(m.dec)*Math.cos(s.ra-m.ra));
+return{fraction:(1+Math.cos(inc))/2,phase:0.5+0.5*inc*(ang<0?-1:1)/PI}}
+return{getPosition,getTimes,getMoonPosition,getMoonIllumination}})();
+
+const compassAz=a=>((a/DEG+180)%360+360)%360; // SunCalc azimuth is from south, westward
+
+/* ---------- state ---------- */
+const DEFAULT_LOC={name:'Toronto',lat:43.65,lon:-79.38,tz:'America/Toronto'};
+let loc=store.get('dp.loc',DEFAULT_LOC);
+if(loc.tz&&!okTz(loc.tz)) delete loc.tz;
+let LIM=store.get('dp.lim',{good:25,rough:35});
+let GLOW=store.get('dp.glow',true); // city glow on the night horizon
+let data=null, loading=true, dayIdx=0, follow=true, selT=Date.now();
+const dayStart=i=>{const w=wall(Date.now());return zoned(w.y,w.mo,w.d+i)}; // local midnight at the location
+const timesFor=i=>SC.getTimes(new Date(dayStart(i)+12*HOUR),loc.lat,loc.lon);
+
+/* ---------- wind data ---------- */
+// Preview: Windy's daily figures for Toronto, Oct 9–11 2026 (wind / gusts, m/s): 6.9/10.8, 6.4/10.1, 4.8/7.7 with rain Sunday.
+// Spread over the day with a typical lake pattern: lightest around dawn, strongest mid-afternoon.
+// Pinned to those dates, so once they pass the days show no wind rather than old figures under a new date.
+const PREVIEW_START=Date.UTC(2026,9,9,4); // midnight Oct 9 in Toronto (EDT)
+function previewData(){
+  const peaks=[[6.9,10.8,255],[6.4,10.1,285],[4.8,7.7,135]];
+  const sus=[],gust=[],dir=[],pop=[];
+  peaks.forEach(([w,g,d0],d)=>{const W=w*3.6,G=g*3.6,ratio=G/W;
+    for(let h=0;h<24;h++){
+      const f=0.52+0.48*Math.exp(-Math.pow((h-14.5)/4.2,2));
+      const s=W*f*(1+0.04*Math.sin(h*0.9+d));
+      sus.push(+s.toFixed(1)); gust.push(+(s*ratio*(1+0.06*Math.sin(h*1.7+d*3))).toFixed(1));
+      dir.push((d0+(d===2?h*1.2:8*Math.sin(h/4))+360)%360);
+      pop.push(d===2&&h>=9&&h<=21?60:null);
+    }});
+  return{start:PREVIEW_START,sus,gust,dir,pop,temp:null,live:false};
+}
+async function fetchLive(){
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
+  const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
+  try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(); const h=j.hourly;
+    return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,live:true,fetched:Date.now()};
+  }finally{clearTimeout(to)}
+}
+function windAt(t){
+  if(!data) return null; const x=(t-data.start)/HOUR, n=data.sus.length; if(x<0||x>n-1) return null;
+  const i=Math.floor(x),f=x-i,j=Math.min(i+1,n-1);
+  const L=a=>(!a||a[i]==null||a[j]==null)?null:a[i]+(a[j]-a[i])*f;
+  const d1=data.dir[i],d2=data.dir[j],dd=((d2-d1+540)%360)-180;
+  const k=Math.round(x);
+  return{sus:L(data.sus),gust:L(data.gust),dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[k]:null,temp:L(data.temp)};
+}
+function status(w){
+  if(!w) return -1;
+  const gs=LIM.good*0.6, rs=LIM.rough*0.62;
+  let s=(w.sus<=gs&&w.gust<=LIM.good)?2:(w.sus>rs||w.gust>LIM.rough)?0:1;
+  if(s===2&&w.pop!=null&&w.pop>=50) s=1;
+  return s;
+}
+
+/* ---------- verdict ---------- */
+function evaluate(i){
+  const t=timesFor(i); let s=t.dawn.getTime(), e=t.dusk.getTime();
+  if(isNaN(s)||isNaN(e)){s=dayStart(i)+6*HOUR;e=dayStart(i)+19*HOUR}
+  const now=Date.now(); const dawn=s;
+  if(i===0) s=Math.max(s,Math.ceil(now/(5*MIN))*5*MIN);
+  if(s>=e) return{kind:'over'};
+  if(!data) return{kind:loading?'loading':'nodata'};
+  const step=10*MIN, pts=[];
+  for(let x=s;x<e;x+=step){const w=windAt(x);pts.push({t:x,w,s:status(w)})}
+  if(pts.every(p=>p.s<0)) return{kind:'nodata'};
+  const best=min=>{let bs=null,cur=null;for(const p of pts){if(p.s>=min){if(!cur)cur={a:p.t,b:p.t+step,pts:[p]};else{cur.b=p.t+step;cur.pts.push(p)}}else{if(cur&&(!bs||cur.b-cur.a>bs.b-bs.a))bs=cur;cur=null}}
+    if(cur&&(!bs||cur.b-cur.a>bs.b-bs.a))bs=cur; if(bs) bs.b=Math.min(bs.b,e); return bs&&bs.b-bs.a>=30*MIN?bs:null};
+  const stats=ps=>{const v=ps.filter(p=>p.w);return{avg:Math.round(v.reduce((a,p)=>a+p.w.sus,0)/v.length),max:Math.round(Math.max(...v.map(p=>p.w.gust))),rain:v.some(p=>p.w.pop!=null&&p.w.pop>=50)}};
+  const all=stats(pts);
+  let win=best(2), kind='go'; if(!win){win=best(1);kind='maybe'} if(!win) kind='nogo';
+  const res={kind,all,win,dawn,dusk:e,startedLate:i===0&&s>dawn};
+  if(win){res.ws=stats(win.pts);const after=pts.filter(p=>p.t>=win.b&&p.w);if(after.length){const pk=after.reduce((a,p)=>p.w.gust>a.w.gust?p:a);res.after={sus:Math.round(pk.w.sus),gust:Math.round(pk.w.gust),t:pk.t}}}
+  return res;
+}
+const KIND={go:['go','CALM'],maybe:['maybe','MANAGEABLE'],nogo:['nogo','ROUGH'],over:['over','DONE'],nodata:['over','NO DATA'],loading:['over','LOADING']};
+function renderVerdict(){
+  const v=evaluate(dayIdx), [cls,lab]=KIND[v.kind];
+  const pill=$('#vpill'); pill.className='pill '+cls; pill.textContent=lab;
+  const winTxt=v.win?`<span class="mono">${fmt(new Date(v.win.a))} – ${fmt(new Date(v.win.b))}</span>`:'';
+  let head='',sub='',winLine='';
+  if(v.kind==='go'){head='Calm conditions.';winLine=`Calmest ${winTxt}`;
+    sub=`Steady wind around ${v.ws.avg} km/h, gusting to ${v.ws.max}.`+(v.after?` It builds after that, reaching ${v.after.sus} km/h gusting ${v.after.gust} around ${fmt(new Date(v.after.t))}.`:'');}
+  else if(v.kind==='maybe'){head='Manageable wind at best.';winLine=`Least wind ${winTxt}`;
+    sub=`Expect about ${v.ws.avg} km/h with gusts to ${v.ws.max}.`;}
+  else if(v.kind==='nogo'){head='Rough all day.';
+    sub=`Gusts reach ${v.all.max} km/h, above your ${LIM.rough} km/h limit, through ${v.startedLate?'the rest of':'all of'} the daylight.`;}
+  else if(v.kind==='over'){head='Daylight is done for today.';sub='Tap tomorrow to see the next window.';}
+  else if(v.kind==='loading'){head='Checking the wind…';sub='';}
+  else {head='No wind forecast for this day.';sub=data&&!data.live?'The live forecast didn’t load, and the preview estimate only covers Oct 9 to 11, 2026.':'';}
+  if(v.win&&v.ws.rain) sub+=' Rain is likely during the window.';
+  $('#vh').textContent=head; $('#vwin').innerHTML=winLine; $('#vsub').textContent=sub;
+  const jb=$('#vjump'); jb.hidden=!v.win; jb.onclick=()=>{setTime(v.win.a+5*MIN)};
+  // tab dots
+  for(let i=0;i<3;i++){const k=evaluate(i).kind;const el=document.querySelector(`#tab${i} .mini`);if(el)el.style.background=k==='go'?'var(--go)':k==='maybe'?'var(--maybe)':k==='nogo'?'var(--nogo)':'var(--dim)'}
+  return v;
+}
+function renderTabs(){
+  const tabs=$('#tabs'); tabs.innerHTML='';
+  for(let i=0;i<3;i++){const d=dayStart(i)+12*HOUR;
+    const b=document.createElement('button');b.className='tab';b.id='tab'+i;b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',i===dayIdx);
+    b.innerHTML=`<span><i class="mini"></i>${i===0?'Today':fmtDate(d,{weekday:'long'})}</span><em>${fmtDate(d,{month:'short',day:'numeric'})}</em>`;
+    b.onclick=()=>selectDay(i); tabs.appendChild(b)}
+}
+function selectDay(i){
+  dayIdx=i; document.querySelectorAll('.tab').forEach((b,k)=>b.setAttribute('aria-selected',k===i));
+  const v=renderVerdict();
+  if(i===0){follow=true;selT=Date.now()}
+  else{follow=false;selT=v.win?v.win.a+5*MIN:(timesFor(i).sunrise.getTime()||dayStart(i)+7*HOUR)}
+  bandCache=null; renderAlmanac(); drawTL(); hudTick(true); syncNow();
+}
+
+/* ---------- almanac ---------- */
+const ROWS=[['nightEnd','Astronomical dawn','−18°','#1e2d63'],['nauticalDawn','Nautical dawn','−12°','#3a4f93'],['dawn','Civil dawn','−6°','#7a6fb0'],['sunrise','Sunrise','0°','#d9875f'],['goldenHourEnd','Golden hour ends','+6°','#f2b06a'],['solarNoon','Solar noon','','#8cc4ef'],['goldenHour','Golden hour begins','+6°','#f2b06a'],['sunset','Sunset','0°','#d9875f'],['dusk','Civil dusk','−6°','#7a6fb0'],['nauticalDusk','Nautical dusk','−12°','#3a4f93'],['night','Astronomical dusk','−18°','#1e2d63']];
+function renderAlmanac(){
+  const t=timesFor(dayIdx), ul=$('#almanac'); ul.innerHTML='';
+  ROWS.forEach(([k,name,deg,col])=>{const d=t[k];const li=document.createElement('li');li.dataset.t=d.getTime();
+    li.innerHTML=`<i class="d" style="background:${col}"></i><span class="n">${name}</span><span class="deg">${deg}</span><span class="t">${fmt(d)}</span>`;
+    if(!isNaN(d)) li.onclick=()=>setTime(d.getTime()); ul.appendChild(li)});
+  // moon + day facts
+  const mid=new Date(dayStart(dayIdx)+12*HOUR), mi=SC.getMoonIllumination(mid);
+  $('#moonname').textContent=moonName(mi.phase); $('#moonsub').textContent=`${Math.round(mi.fraction*100)}% lit`;
+  drawMoonIcon(mi.phase);
+  const mr=moonRiseSet(dayIdx), len=t.sunset-t.sunrise;
+  const kv=[['Day length',isNaN(len)?'—':`${Math.floor(len/HOUR)} h ${pad(Math.round(len%HOUR/MIN))} min`],['Civil daylight',`${fmt(t.dawn)} – ${fmt(t.dusk)}`],['Moonrise',mr.rise?fmt(mr.rise):'none'],['Moonset',mr.set?fmt(mr.set):'none'],['Blue hour (evening)',`${fmt(t.blueStart)} – ${fmt(t.dusk)}`]];
+  $('#daykv').innerHTML=kv.map(([a,b])=>`<dt>${a}</dt><dd>${b}</dd>`).join('');
+}
+function markAlmanac(){let cur=null;document.querySelectorAll('#almanac li').forEach(li=>{li.classList.remove('cur');if(+li.dataset.t<=selT)cur=li});if(cur)cur.classList.add('cur')}
+function moonName(p){if(p<0.03||p>0.97)return'New moon';if(p<0.22)return'Waxing crescent';if(p<0.28)return'First quarter';if(p<0.47)return'Waxing gibbous';if(p<0.53)return'Full moon';if(p<0.72)return'Waning gibbous';if(p<0.78)return'Last quarter';return'Waning crescent'}
+function moonRiseSet(i){const s=dayStart(i),e=dayStart(i+1);let prev=null,rise=null,set=null;for(let x=s;x<=e;x+=10*MIN){const a=SC.getMoonPosition(new Date(x),loc.lat,loc.lon).altitude;if(prev!=null){if(prev<0&&a>=0&&!rise)rise=new Date(x);if(prev>=0&&a<0&&!set)set=new Date(x)}prev=a}return{rise,set}}
+function drawMoonIcon(p){const r=19,c=23,th=2*Math.PI*p;const k=Math.cos(th);const right=p<0.5;
+  // lit region: half disc + elliptical terminator
+  const rx=Math.abs(k)*r; const sweepHalf=right?1:0;
+  const lit=`M${c} ${c-r} A${r} ${r} 0 0 ${sweepHalf} ${c} ${c+r} A${rx} ${r} 0 0 ${(k>0)===right?0:1} ${c} ${c-r} Z`;
+  $('#moonic').innerHTML=`<circle cx="${c}" cy="${c}" r="${r}" fill="#1a2238" stroke="#2c3a5c"/><path d="${lit}" fill="#efe8d6"/>`;}
+
+/* ---------- timeline ---------- */
+const tl=$('#tl'), tctx=tl.getContext('2d'); let bandCache=null;
+const STOPS=[[-90,[13,20,48]],[-18,[13,20,48]],[-12,[30,45,99]],[-6,[58,79,147]],[-3,[122,111,176]],[-0.833,[217,135,95]],[3,[242,176,106]],[10,[140,196,239]],[90,[140,196,239]]];
+function altColor(a){for(let k=1;k<STOPS.length;k++){if(a<=STOPS[k][0]){const [a0,c0]=STOPS[k-1],[a1,c1]=STOPS[k],f=(a-a0)/(a1-a0);return`rgb(${c0.map((v,j)=>Math.round(v+(c1[j]-v)*f)).join(',')})`}}return'rgb(140,196,239)'}
+function drawTL(){
+  const W=tl.clientWidth,H=tl.clientHeight,dpr=Math.min(devicePixelRatio||1,2);
+  if(tl.width!==Math.round(W*dpr)){tl.width=Math.round(W*dpr);tl.height=Math.round(H*dpr);bandCache=null}
+  const c=tctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
+  const d0=dayStart(dayIdx),span=dayStart(dayIdx+1)-d0,nH=Math.round(span/HOUR),X=t=>(t-d0)/span*W; // 23 or 25 h on clock-change days
+  const bandY=0,bandH=22,cy0=34,cy1=H-20;
+  if(!bandCache){bandCache=[];for(let m=0;m<288;m++){const t=d0+(m+0.5)/288*span;bandCache.push(altColor(SC.getPosition(new Date(t),loc.lat,loc.lon).altitude/DEG))}}
+  bandCache.forEach((col,m)=>{c.fillStyle=col;c.fillRect(Math.floor(m/288*W),bandY,Math.ceil(W/288)+1,bandH)});
+  // chart
+  const tt=timesFor(dayIdx),dawn=tt.dawn.getTime(),dusk=tt.dusk.getTime();
+  let maxG=40;for(let h=0;h<nH;h++){const w=windAt(d0+h*HOUR+30*MIN);if(w&&w.gust)maxG=Math.max(maxG,w.gust)}maxG=Math.ceil(maxG/10)*10;
+  const Y=v=>cy1-(v/maxG)*(cy1-cy0);
+  c.strokeStyle='#24324f';c.lineWidth=1;c.font='10px "JetBrains Mono",monospace';c.fillStyle='#95a2bb';
+  for(let v=10;v<=maxG;v+=10){c.beginPath();c.moveTo(0,Math.round(Y(v))+.5);c.lineTo(W,Math.round(Y(v))+.5);c.stroke()}
+  const v=evaluate(dayIdx);
+  if(v.win){c.fillStyle='rgba(95,212,155,.10)';if(v.kind==='maybe')c.fillStyle='rgba(242,197,90,.10)';c.fillRect(X(v.win.a),cy0-6,X(v.win.b)-X(v.win.a),cy1-cy0+6)}
+  const bw=Math.max(3,W/24*0.62);
+  for(let h=0;h<nH;h++){const tm=d0+h*HOUR+30*MIN,w=windAt(tm);if(!w)continue;const s=status(w),day=tm>=dawn-30*MIN&&tm<=dusk+30*MIN;
+    const col=s===2?'95,212,155':s===1?'242,197,90':'255,123,107';const x=X(tm)-bw/2;
+    c.fillStyle=`rgba(${col},${day?.85:.28})`;c.beginPath();c.roundRect?c.roundRect(x,Y(w.sus),bw,cy1-Y(w.sus),[2,2,0,0]):c.rect(x,Y(w.sus),bw,cy1-Y(w.sus));c.fill();
+    c.fillStyle=`rgba(233,238,246,${day?.9:.35})`;c.fillRect(x-1,Math.round(Y(w.gust))-1,bw+2,2)}
+  // limits
+  c.setLineDash([3,3]);[[LIM.good,'95,212,155'],[LIM.rough,'255,123,107']].forEach(([g,col])=>{if(g<=maxG){c.strokeStyle=`rgba(${col},.7)`;c.beginPath();c.moveTo(0,Math.round(Y(g))+.5);c.lineTo(W,Math.round(Y(g))+.5);c.stroke()}});c.setLineDash([]);
+  c.fillStyle='#95a2bb';c.textAlign='left';c.fillText(`${maxG} km/h`,4,cy0+8);
+  // hour labels
+  const wd=wall(d0+12*HOUR);
+  c.textAlign='center';[0,3,6,9,12,15,18,21,24].forEach(h=>{const lab=h===0||h===24?'12a':h===12?'12p':h<12?h+'a':(h-12)+'p';const x=clamp(X(zoned(wd.y,wd.mo,wd.d,h)),10,W-10);if(W<420&&h%6)return;c.fillText(lab,x,H-5)});
+  // thumb
+  const xs=X(selT);if(xs>=0&&xs<=W){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(xs,0);c.lineTo(xs,cy1);c.stroke();c.fillStyle='#fff';c.beginPath();c.arc(xs,bandH/2,6,0,7);c.fill();c.strokeStyle='#090e1a';c.lineWidth=2;c.stroke()}
+  const tw=$('#tlwrap');const mins=Math.round((selT-d0)/MIN);tw.setAttribute('aria-valuemax',Math.round(span/MIN));tw.setAttribute('aria-valuenow',mins);tw.setAttribute('aria-valuetext',fmt(new Date(selT)));
+}
+function setTime(t){follow=false;selT=clamp(t,dayStart(dayIdx),dayStart(dayIdx+1)-MIN);syncNow();drawTL();hudTick(true)}
+function syncNow(){const b=$('#nowbtn');b.setAttribute('aria-pressed',follow);b.textContent=follow?'Following now':'Jump to now'}
+let dragging=false;
+const tFromX=e=>{const r=tl.getBoundingClientRect(),d0=dayStart(dayIdx);return d0+clamp((e.clientX-r.left)/r.width,0,0.9993)*(dayStart(dayIdx+1)-d0)};
+tl.addEventListener('pointerdown',e=>{dragging=true;tl.setPointerCapture(e.pointerId);setTime(tFromX(e))});
+tl.addEventListener('pointermove',e=>{if(dragging)setTime(tFromX(e))});
+['pointerup','pointercancel'].forEach(n=>tl.addEventListener(n,()=>dragging=false));
+$('#tlwrap').addEventListener('keydown',e=>{const st=e.shiftKey?HOUR:10*MIN;if(e.key==='ArrowRight'){setTime(selT+st);e.preventDefault()}if(e.key==='ArrowLeft'){setTime(selT-st);e.preventDefault()}});
+$('#nowbtn').onclick=()=>{if(dayIdx!==0){selectDay(0)}else{follow=true;selT=Date.now();syncNow();drawTL();hudTick(true)}};
+
+/* ---------- HUD ---------- */
+let lastHud=0, lastMinute=-1;
+function phaseOf(a,am){if(a>=6)return'Daylight';if(a>=-0.833)return'Golden hour';if(a>=-6)return a<-4?'Blue hour':'Civil twilight';if(a>=-12)return'Nautical twilight';if(a>=-18)return'Astronomical twilight';return'Night'}
+function hudTick(force){
+  const now=performance.now(); if(!force&&now-lastHud<250) return; lastHud=now;
+  const d=new Date(selT), sp=SC.getPosition(d,loc.lat,loc.lon), a=sp.altitude/DEG, azc=compassAz(sp.azimuth);
+  $('#clock').innerHTML=`${fmtShort(d)}<small>${wall(d).h<12?'am':'pm'}</small>`;
+  const ph=phaseOf(a), am=azc<180, tw=a<6&&a>=-18;
+  $('#phase').textContent=tw?`${am?'Morning':'Evening'} ${ph.toLowerCase()}`:ph;
+  $('#alt').textContent=(Math.abs(a)<0.9?'Sun on the horizon':a>=0?`Sun ${a.toFixed(1)}° above the horizon`:`Sun ${Math.abs(a).toFixed(1)}° below the horizon`)+(ph==='Blue hour'?' · civil twilight':'');
+  const g=$('#gdot');g.style.top=clamp((30-a)/54*100,0,100)+'%';g.classList.toggle('below',a<0);
+  $('.scrim').style.opacity=(0.45+0.55*sstep(-14,-4,a)).toFixed(2); // a dark sky doesn't need the full scrim behind the text
+  const w=windAt(selT);
+  if(w){$('#spd').innerHTML=`${Math.round(w.sus)}<small>km/h</small>`;$('#gst').textContent=Math.round(w.gust);
+    $('#wdir').textContent=`from ${card(w.dir)}`;$('#wbeau').textContent=beau(w.sus);$('#arrow').querySelector('path').setAttribute('transform',`rotate(${(w.dir+180)%360} 15 15)`)}
+  else{$('#spd').innerHTML=`—<small>km/h</small>`;$('#gst').textContent='—';$('#wdir').textContent=!data&&loading?'loading forecast':'no forecast';$('#wbeau').textContent=''}
+  $('#facing').innerHTML=`Facing ${card(camAzDeg)}<br>${Math.round(camAzDeg)}°`;
+  const m=Math.floor(selT/MIN); if(m!==lastMinute){lastMinute=m;markAlmanac();if(follow){drawTL();renderVerdict()}}
+}
+
+/* ---------- sky renderer ---------- */
+const VS=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+const FS=`precision highp float;
+uniform vec2 uRes;uniform float uTime,uExpo,uStars,uCamAz,uPitch,uWind,uGust,uAmb,uMoonPhase,uMoonUp,uFill,uGlow,uCity,uMoonLight;
+uniform vec3 uSun,uMoon,uSunCol,uMoonCol,uMoonTint,uSX,uSY,uSZ;uniform vec2 uWindVec;
+#define PI 3.14159265
+const float RP=6371.0;const float RA=6471.0;
+float hash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y);}
+float n1(float x){float i=floor(x),f=fract(x);float a=fract(sin(i*127.1)*43758.5),b=fract(sin((i+1.0)*127.1)*43758.5);return mix(a,b,f*f*(3.0-2.0*f));}
+vec2 rsi(vec3 r0,vec3 rd,float sr){float b=dot(rd,r0);float c=dot(r0,r0)-sr*sr;float d=b*b-c;if(d<0.0)return vec2(1e5,-1e5);d=sqrt(d);return vec2(-b-d,-b+d);}
+vec3 atmo(vec3 r){
+  vec3 r0=vec3(0.0,RP+0.4,0.0);vec3 kR=vec3(5.5e-3,13.0e-3,22.4e-3);float kM=21e-3;float g=0.758;
+  vec2 p=rsi(r0,r,RA);float tE=p.y;vec2 pp=rsi(r0,r,RP);if(pp.x<pp.y&&pp.x>0.0)tE=min(tE,pp.x);
+  float st=tE/12.0;float mu=dot(r,uSun);float mm=mu*mu;float gg=g*g;
+  float pR=3.0/(16.0*PI)*(1.0+mm);
+  float pM=3.0/(8.0*PI)*((1.0-gg)*(mm+1.0))/(pow(max(1.0+gg-2.0*mu*g,1e-4),1.5)*(2.0+gg));
+  float oR=0.0,oM=0.0;vec3 tR=vec3(0.0),tM=vec3(0.0);
+  for(int i=0;i<12;i++){
+    vec3 ip=r0+r*(st*(float(i)+0.5));float ih=length(ip)-RP;
+    float dR=exp(-ih/8.0)*st,dM=exp(-ih/1.2)*st;oR+=dR;oM+=dM;
+    vec2 sp=rsi(ip,uSun,RP);
+    if(!(sp.x<sp.y&&sp.x>0.0)){
+      float js=rsi(ip,uSun,RA).y/6.0;float jR=0.0,jM=0.0;
+      for(int j=0;j<6;j++){vec3 jp=ip+uSun*(js*(float(j)+0.5));float jh=max(length(jp)-RP,0.0);jR+=exp(-jh/8.0)*js;jM+=exp(-jh/1.2)*js;}
+      vec3 at=exp(-(kM*(oM+jM)+kR*(oR+jR)));tR+=dR*at;tM+=dM*at;
+    }
+  }
+  return 22.0*(pR*kR*tR+pM*kM*tM);
+}
+/* Stars: a random field fixed to the sky. uSX/uSY/uSZ turn a world direction into sky coordinates
+   (z = celestial pole, rotated by local sidereal time), so the field turns about the pole at the real rate.
+   Many faint stars, few bright ones; each is at least about a pixel wide whatever the render scale.
+   City glow washes out the faintest. Twinkle grows toward the horizon (lo = 1 at the horizon, 0 overhead). */
+vec3 stars(vec3 d,float lo){
+  const float K=110.0;vec3 p=vec3(dot(d,uSX),dot(d,uSY),dot(d,uSZ))*K;vec3 c=floor(p);float h=hash(c);if(h<0.962)return vec3(0.0);
+  vec3 o=vec3(hash(c+3.1),hash(c+7.7),hash(c+11.3))*0.5+0.25;
+  float m=hash(c+5.3);float b=0.07+0.93*m*m*m*m;
+  b*=1.0-uCity*(1.0-smoothstep(0.12,0.3,b));
+  float rr=max(0.9*(1.3/uRes.y)*K,0.06);float q=length(fract(p)-o)/rr;
+  float tw=1.0+(0.12+0.3*lo)*sin(uTime*(2.0+3.0*h)+m*90.0);
+  return mix(vec3(1.0,0.82,0.64),vec3(0.74,0.84,1.0),hash(c+9.1))*b*exp(-2.0*q*q)*tw;}
+float treeH(vec3 d){float az=atan(d.x,d.z);float m=smoothstep(0.35,0.62,n1(az*1.4+9.0));
+  return m*(0.006+0.014*n1(az*5.0+3.0)*n1(az*2.3+1.0)+0.003*n1(az*22.0));}
+vec3 sky(vec3 d,float disc){ // disc=0 leaves out the sun and moon discs (the water adds its own glitter for both)
+  vec3 c=atmo(d);
+  float mu=dot(d,uSun);
+  if(uSun.y>-0.02) c+=disc*uSunCol*45.0*smoothstep(0.99989,0.99993,mu);
+  if(uMoonUp>0.5&&disc>0.5){float mm=dot(d,uMoon);if(mm>0.9996){
+    vec3 up=normalize(vec3(0.0,1.0,0.0)-uMoon*uMoon.y+vec3(0.0,0.0,1e-4));vec3 rt=cross(up,uMoon);
+    vec2 q=vec2(dot(d,rt),dot(d,up))/0.026;float l2=dot(q,q);
+    if(l2<1.0){vec3 n=vec3(q,sqrt(1.0-l2));float th=2.0*PI*uMoonPhase;vec3 L=vec3(sin(th),0.0,-cos(th));
+      float lit=smoothstep(-0.03,0.08,dot(n,L));float mare=0.82+0.18*vn(q*2.6+7.0);
+      float edge=1.0-smoothstep(0.88,1.0,l2);c+=uMoonTint*lit*mare*0.75*edge;}}}
+  float hz=smoothstep(0.0,0.25,d.y);
+  vec2 sh=normalize(uSun.xz+vec2(1e-5));vec2 dh=normalize(d.xz+vec2(1e-5));float hd=max(dot(sh,dh),0.0);
+  c+=uFill*mix(vec3(0.42,0.42,0.62),vec3(0.16,0.27,0.62),sqrt(hz));
+  c+=uGlow*(pow(hd,3.0)*vec3(1.0,0.42,0.16)+0.25*vec3(0.6,0.35,0.4))*exp(-max(d.y,0.0)*9.0);
+  float ay=max(d.y,0.0),mm=dot(d,uMoon);
+  // natural night sky (airglow): brighter toward the horizon (van Rhijn), dimmed again in the last few degrees by extinction
+  c+=vec3(0.0020,0.0030,0.0062)*inversesqrt(1.0-0.9*(1.0-ay*ay))*mix(0.6,1.0,smoothstep(0.0,0.06,ay));
+  // city glow: warm skyglow sitting low on the horizon, uneven around it
+  c+=uCity*vec3(0.017,0.0098,0.0052)*exp(-ay/0.09)*(0.65+0.35*n1(atan(d.x,d.z)*1.7+2.0));
+  // moonlight scattered by the air: blue that brightens toward the horizon, plus a halo around the moon
+  c+=uMoonLight*(vec3(0.20,0.42,1.0)*0.012*(0.75+0.25*mm*mm)*(1.0+1.2*(1.0-hz))+vec3(1.0,0.92,0.8)*(0.03*pow(max(mm,0.0),30.0)+0.004*pow(max(mm,0.0),4.0)));
+  c+=0.35*stars(d,1.0-hz)*uStars*smoothstep(-0.01,0.09,ay)*(1.0-0.6*uMoonLight);
+  return c;
+}
+vec3 shore(vec3 c){return mix(c*0.035,c,0.10);}
+/* Water: a sum of 12 wind-driven waves with analytic slopes, moving at deep-water speed (omega = sqrt(g k)).
+   Waves too small for the pixel footprint fade out, and their slope variance moves into a microfacet roughness
+   term instead of aliasing into blocks. That roughness softens the shoreline reflection and shapes the sun glitter.
+   Total slope variance at full steepness lands near Cox-Munk values for the same wind. */
+vec3 water(vec3 d){
+  float t=1.2/max(-d.y,1e-4);vec2 p=d.xz*t;    // eye 1.2 m above the surface
+  float fp=(1.3/uRes.y)*t/sqrt(max(-d.y,1e-4)); // pixel footprint on the water (m)
+  float patchN=smoothstep(0.35,0.85,vn((p-uWindVec*uTime*(1.5+uWind*4.0))*0.035)); // gust patches (cat's paws)
+  float grp=vn(p*0.045+uWindVec*uTime*0.3);     // wave groups, so long waves don't look uniform
+  float wa=atan(uWindVec.x,uWindVec.y);
+  float S=0.012+0.11*uWind;                      // steepness (a*k) per wave
+  float L0=0.9+6.0*uWind;                        // longest wavelength (m)
+  vec2 g=vec2(0.0);float h=0.0,hs=0.0,v=0.0006+0.007*uWind*(1.0+uGust*patchN); // + capillary ripples below the smallest wave
+  for(int i=0;i<12;i++){
+    float fi=float(i);
+    float k=6.2832/(L0*pow(0.72,fi));
+    float r1=fract(sin(fi*91.7+1.3)*43758.5),r2=fract(sin(fi*37.3+4.1)*24634.6);
+    float ang=wa+(r1-0.5)*(0.6+1.6*fi/11.0);     // short waves spread wider around the wind
+    vec2 dir=vec2(sin(ang),cos(ang));
+    float sk=S*(0.7+0.6*r2)*(fi>5.0?1.0+uGust*1.6*patchN:0.75+0.5*grp);
+    float ph=k*dot(dir,p)-sqrt(9.81*k)*uTime+r2*6.2832;
+    float w=1.0-smoothstep(0.5,1.0,fp*k/PI);     // fade out below ~2 pixels per wavelength
+    g+=dir*(sk*cos(ph)*w);h+=sk/k*sin(ph)*w;hs+=sk/k;
+    v+=0.5*sk*sk*(1.0-w*w);
+  }
+  vec3 n=normalize(vec3(-g.x,1.0,-g.y)),V=-d;
+  float nv=max(dot(n,V),0.02);
+  float F=0.02+0.98*pow(1.0-nv,5.0);
+  vec3 r=reflect(d,n);r.y=max(r.y,0.0015);r=normalize(r);
+  vec3 refl=sky(r,0.0);
+  float th=treeH(r),sw=0.0015+sqrt(v)*0.4;
+  refl=mix(refl,shore(refl),1.0-smoothstep(th-sw,th+sw,r.y));
+  vec3 c=mix(vec3(0.018,0.042,0.05)*uAmb,refl,F);
+  // sun glitter: Beckmann highlight with the unresolved slope variance, lit by the same sun as the atmosphere
+  vec3 H=normalize(uSun+V);float nh=max(dot(n,H),0.05),nh2=nh*nh;
+  float D=exp(-(1.0-nh2)/(nh2*v))/(PI*v*nh2*nh2);
+  float Fh=0.02+0.98*pow(1.0-max(dot(H,V),0.0),5.0);
+  c+=uSunCol*min(22.0*D*Fh/(4.0*nv),60.0)*smoothstep(-0.01,0.01,uSun.y);
+  // moon glitter: same model, lit by the moon (brightness from its phase and height, set in JS)
+  if(uMoonLight>0.0){vec3 Hm=normalize(uMoon+V);float nm=max(dot(n,Hm),0.05),nm2=nm*nm;
+    float Dm=exp(-(1.0-nm2)/(nm2*v))/(PI*v*nm2*nm2);float Fm=0.02+0.98*pow(1.0-max(dot(Hm,V),0.0),5.0);
+    c+=uMoonCol*min(1.2*Dm*Fm/(4.0*nv),3.0)*smoothstep(-0.01,0.02,uMoon.y);}
+  // whitecaps on crests when it's windy; far away they average into a faint sheen
+  float cov=smoothstep(0.45,0.95,uWind+uGust*0.25)*(0.6+0.4*patchN);
+  float crest=smoothstep(0.62,0.9,0.5+0.5*h/(0.6*hs+1e-4));
+  c+=vec3(0.75,0.8,0.85)*(uAmb+0.004)*cov*mix(crest,0.12,smoothstep(0.3,2.0,fp));
+  return c;
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/uRes.y;
+  vec3 d=normalize(vec3(uv.x*1.3,uv.y*1.3,1.0));
+  float cp=cos(uPitch),sp=sin(uPitch);d=vec3(d.x,d.y*cp+d.z*sp,-d.y*sp+d.z*cp);
+  float ca=cos(uCamAz),sa=sin(uCamAz);vec3 dw=vec3(d.x*ca+d.z*sa,d.y,-d.x*sa+d.z*ca);
+  vec3 c;
+  if(dw.y>=0.0){c=sky(dw,1.0);float th=treeH(dw),pa=1.3/uRes.y;c=mix(c,shore(c),1.0-smoothstep(th-pa,th+0.3*pa,dw.y));}
+  else c=water(dw);
+  c=1.0-exp(-uExpo*c);c=pow(c,vec3(0.92));
+  vec2 q=gl_FragCoord.xy/uRes;c*=0.8+0.2*pow(16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y),0.25);
+  c+=(hash(vec3(gl_FragCoord.xy,fract(uTime)*91.0))-0.5)*0.012;
+  gl_FragColor=vec4(c,1.0);
+}`;
+const cv=$('#sky'); let gl=null, prog=null, U={}, camAz=null, camAzDeg=0;
+// Render scale (canvas pixels per device pixel) adapts to frame time: it drops when frames run slow and climbs back
+// when they're steady, but never back up to a scale that was already too slow. The first 1.5 s are ignored (startup jank).
+const MAX_SCALE=(devicePixelRatio||1)>=2?0.75:1;
+let scale=MAX_SCALE*0.8, scaleCeil=MAX_SCALE, warm=0, steady=0;
+function initGL(){
+  gl=cv.getContext('webgl',{antialias:false,alpha:false,powerPreference:'low-power',preserveDrawingBuffer:false});
+  if(!gl) return false;
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(o));return null}return o};
+  const v=sh(gl.VERTEX_SHADER,VS),f=sh(gl.FRAGMENT_SHADER,FS);if(!v||!f)return false;
+  prog=gl.createProgram();gl.attachShader(prog,v);gl.attachShader(prog,f);gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))return false;
+  gl.useProgram(prog);const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+  const loc_=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc_);gl.vertexAttribPointer(loc_,2,gl.FLOAT,false,0,0);
+  ['uRes','uTime','uExpo','uStars','uCamAz','uPitch','uWind','uGust','uAmb','uMoonPhase','uMoonUp','uFill','uGlow','uSun','uMoon','uSunCol','uWindVec','uCity','uMoonLight','uMoonCol','uMoonTint','uSX','uSY','uSZ'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  return true;
+}
+function resize(){const r=cv.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);const s=dpr*scale;const w=Math.max(1,Math.round(r.width*s)),h=Math.max(1,Math.round(r.height*s));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}}
+function sunTransmit(alt){ // colour of the solar disc after passing through the air
+  if(alt<-0.03) return [0,0,0];
+  const kR=[5.5e-3,13e-3,22.4e-3],kM=21e-3,r0=6371.4,dir=[Math.cos(alt),Math.sin(alt)];
+  const b=r0*dir[1],c=r0*r0-6471*6471,t=-b+Math.sqrt(b*b-c),st=t/16;let oR=0,oM=0;
+  for(let i=0;i<16;i++){const s=st*(i+.5),x=dir[0]*s,y=r0+dir[1]*s,h=Math.max(Math.hypot(x,y)-6371,0);oR+=Math.exp(-h/8)*st;oM+=Math.exp(-h/1.2)*st}
+  return kR.map(k=>Math.exp(-(k*oR+kM*oM)));
+}
+const vec=(az,alt)=>[Math.sin(az)*Math.cos(alt),Math.sin(alt),Math.cos(az)*Math.cos(alt)];
+let lastTs=0, ema=0.03, animT=0;
+function gustBurst(t){const s=Math.sin(t*0.37)+0.6*Math.sin(t*0.91+1.3)+0.45*Math.sin(t*1.73+2.1);return Math.pow(clamp(0.5+s/4.1,0,1),3)}
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt=(ts-lastTs)/1000; if(dt<0.031) return; lastTs=ts;
+  if(follow) selT=Date.now();
+  if(!reduce) animT+=Math.min(dt,0.1);
+  const d=new Date(selT), sp=SC.getPosition(d,loc.lat,loc.lon), mp=SC.getMoonPosition(d,loc.lat,loc.lon), mi=SC.getMoonIllumination(d);
+  const sAz=compassAz(sp.azimuth)*DEG, mAz=compassAz(mp.azimuth)*DEG, alt=sp.altitude;
+  const target=alt>-20*DEG?sAz:(mp.altitude>0?mAz:Math.PI);
+  if(camAz==null)camAz=target;else{let dd=((target-camAz+3*Math.PI)%(2*Math.PI))-Math.PI;camAz+=dd*Math.min(1,dt*3.5)}
+  camAzDeg=((camAz/DEG)%360+360)%360;
+  hudTick(false);
+  if(!gl) return;
+  if(dt>0&&dt<1){warm+=dt;ema=ema*0.95+dt*0.05;
+    if(warm>1.5){
+      if(ema>0.055&&scale>0.3){scaleCeil=scale*0.97;scale*=0.85;ema=0.035;steady=0;resize()}
+      else if(ema<0.04){steady+=dt;if(steady>4&&scale<scaleCeil){scale=Math.min(scale*1.1,scaleCeil);steady=0;resize()}}
+      else steady=0;
+    }}
+  const w=windAt(selT)||{sus:0,gust:0,dir:270};
+  const burst=reduce?0.4:gustBurst(animT), eff=w.sus+(w.gust-w.sus)*burst;
+  const trav=(w.dir+180)*DEG;
+  const altD=alt/DEG;
+  gl.viewport(0,0,cv.width,cv.height);
+  gl.uniform2f(U.uRes,cv.width,cv.height);gl.uniform1f(U.uTime,animT);
+  gl.uniform1f(U.uExpo,0.95+9.0*sstep(4,-14,altD));
+  gl.uniform1f(U.uFill,0.09*sstep(-16,0,altD)*(1-0.75*sstep(0,15,altD)));gl.uniform1f(U.uGlow,0.33*sstep(-13,-2,altD)*(1-sstep(-1,5,altD)));
+  gl.uniform1f(U.uStars,sstep(-7,-15,altD));
+  gl.uniform1f(U.uCamAz,camAz);gl.uniform1f(U.uPitch,0.085+Math.max(0,alt-0.4));
+  gl.uniform1f(U.uWind,clamp(eff/45,0,1));gl.uniform1f(U.uGust,clamp((w.gust-w.sus)/18,0,1)*burst);
+  // moonlight: brightness falls off steeply away from full (a quarter moon is far less than half as bright),
+  // rises as the moon clears the horizon, and is irrelevant once the sun is up
+  const moonL=Math.pow(mi.fraction,2.2)*sstep(-1,8,mp.altitude/DEG)*(1-sstep(-10,0,altD)), mt=sunTransmit(mp.altitude);
+  gl.uniform1f(U.uMoonLight,moonL);gl.uniform3f(U.uMoonCol,mt[0]*moonL,mt[1]*moonL,mt[2]*moonL);
+  const mr=Math.max(mt[0],1e-4);gl.uniform3f(U.uMoonTint,1,mt[1]/mr,mt[2]/mr); // disc colour: white-ish high up, orange near the horizon
+  gl.uniform1f(U.uCity,GLOW?1:0);
+  // star field turns about the celestial pole with local sidereal time (same formula as SunCalc's sidereal time)
+  const lst=(280.16+360.9856235*(selT/864e5-0.5+2440588-2451545)+loc.lon)*DEG, cL=Math.cos(lst), sL=Math.sin(lst), cP=Math.cos(loc.lat*DEG), sP=Math.sin(loc.lat*DEG);
+  gl.uniform3f(U.uSX,-sL,cL*cP,-cL*sP);gl.uniform3f(U.uSY,cL,sL*cP,-sL*sP);gl.uniform3f(U.uSZ,0,sP,cP);
+  gl.uniform1f(U.uAmb,0.003+0.28*sstep(-12,20,altD)+0.006*moonL);
+  gl.uniform1f(U.uMoonPhase,mi.phase);gl.uniform1f(U.uMoonUp,mp.altitude>-0.02?1:0);
+  gl.uniform3fv(U.uSun,vec(sAz,alt));gl.uniform3fv(U.uMoon,vec(mAz,mp.altitude));gl.uniform3fv(U.uSunCol,sunTransmit(alt));
+  gl.uniform2f(U.uWindVec,Math.sin(trav),Math.cos(trav));
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+/* ---------- settings ---------- */
+function renderLoc(){
+  const zone=!loc.tz?' · device time':loc.tz!==DEVICE_TZ?` · ${esc(tzAbbr(Date.now()))}`:''; // flag times that aren't the phone's own
+  $('#locchip').innerHTML=`<b>${esc(loc.name)}</b> ${(+loc.lat).toFixed(2).replace('-','−')}, ${(+loc.lon).toFixed(2).replace('-','−')}${zone}`;$('#lname').value=loc.name;$('#llat').value=loc.lat;$('#llon').value=loc.lon}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtWhen=d=>d>=dayStart(0)?fmt(d):`${fmt(d)}, ${fmtDate(d,{month:'short',day:'numeric'})}`;
+function renderData(){const chip=$('#datachip'),note=$('#datanote');
+  if(!data){chip.className='chip';chip.textContent='Loading wind';note.textContent=`Loading the hourly forecast from Open-Meteo for ${loc.name}…`}
+  else if(data.live){chip.className='chip live';chip.textContent='Live wind · Open-Meteo';
+    note.innerHTML=`Hourly forecast from Open-Meteo for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
+  else{chip.className='chip preview';chip.textContent='Preview wind';
+    note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}}
+// Forecast refresh: refetch when the forecast is older than 30 minutes or didn't load, checked every minute
+// and whenever the app comes back to the foreground. Failed attempts retry at most every 5 minutes unless forced.
+// A failed refresh keeps the last live forecast (flagged as possibly out of date) rather than dropping to preview.
+let loadSeq=0, lastTry=0;
+async function loadData(){
+  const seq=++loadSeq; loading=true; lastTry=Date.now();
+  let d=null; try{d=await fetchLive()}catch(e){}
+  if(seq!==loadSeq) return; // a newer load (e.g. a location change) has taken over
+  loading=false;
+  let zoneChanged=false;
+  if(d){if(d.tz&&d.tz!==loc.tz&&okTz(d.tz)){loc={...loc,tz:d.tz};store.set('dp.loc',loc);zoneChanged=true}data=d}
+  else if(data&&data.live) data.refreshFailed=true; else data=previewData();
+  renderData();
+  if(zoneChanged) relayout(); else {bandCache=null;renderVerdict();drawTL();hudTick(true)}
+}
+function relayout(){today=dayStart(0);renderLoc();renderTabs();selectDay(dayIdx)} // after the time zone changes, every day boundary moves
+function maybeRefresh(force){
+  if(document.visibilityState!=='visible'||loading) return;
+  if(data&&data.live&&!data.refreshFailed&&Date.now()-data.fetched<30*MIN) return;
+  if(!force&&Date.now()-lastTry<5*MIN) return;
+  loadData();
+}
+let today=dayStart(0);
+function checkDay(){const t=dayStart(0);if(t===today)return;today=t;renderTabs();selectDay(0)}
+function onReturn(){if(document.visibilityState!=='visible')return;checkDay();maybeRefresh(true)}
+document.addEventListener('visibilitychange',onReturn);
+window.addEventListener('pageshow',onReturn);
+window.addEventListener('online',()=>maybeRefresh(true));
+setInterval(()=>{checkDay();maybeRefresh(false)},MIN);
+function applyLoc(nl){
+  if(nl.lat===loc.lat&&nl.lon===loc.lon&&loc.tz) nl.tz=loc.tz; // same spot renamed: keep its time zone
+  loc=nl;store.set('dp.loc',loc);data=null;loadData();renderData();relayout()}
+$('#lsave').onclick=()=>{const lat=parseFloat($('#llat').value),lon=parseFloat($('#llon').value);
+  if(!(lat>=-90&&lat<=90&&lon>=-180&&lon<=180)){$('#lmsg').textContent='Enter latitude between −90 and 90 and longitude between −180 and 180.';return}
+  applyLoc({name:$('#lname').value.trim()||'My spot',lat,lon});$('#lmsg').textContent='Saved.'};
+$('#lgeo').onclick=()=>{const m=$('#lmsg');if(!navigator.geolocation){m.textContent='Location isn’t available here. Type coordinates instead.';return}
+  m.textContent='Asking for your location…';
+  try{navigator.geolocation.getCurrentPosition(p=>{applyLoc({name:'My location',lat:+p.coords.latitude.toFixed(4),lon:+p.coords.longitude.toFixed(4)});m.textContent='Using your location.'},
+    ()=>{m.textContent='Location isn’t available in this view. Type the coordinates instead.'},{timeout:8000})}catch(e){m.textContent='Location isn’t available in this view. Type the coordinates instead.'}};
+$('#cglow').checked=GLOW;$('#cglow').onchange=e=>{GLOW=e.target.checked;store.set('dp.glow',GLOW)};
+function renderLim(){$('#rgood').value=LIM.good;$('#rrough').value=LIM.rough;$('#ogood').textContent=LIM.good+' km/h';$('#orough').textContent=LIM.rough+' km/h'}
+$('#rgood').oninput=e=>{LIM.good=+e.target.value;if(LIM.rough<LIM.good+3)LIM.rough=LIM.good+3;store.set('dp.lim',LIM);renderLim();renderVerdict();drawTL()};
+$('#rrough').oninput=e=>{LIM.rough=+e.target.value;if(LIM.good>LIM.rough-3)LIM.good=LIM.rough-3;store.set('dp.lim',LIM);renderLim();renderVerdict();drawTL()};
+
+/* ---------- boot ---------- */
+renderLoc();renderLim();renderTabs();
+renderData();renderVerdict();renderAlmanac();
+if(!initGL()){const n=document.createElement('div');n.className='nogl';n.textContent='The sky view needs WebGL, which this browser has turned off. Everything else still works.';$('#scene').prepend(n)}
+resize();new ResizeObserver(()=>{resize();drawTL()}).observe($('#scene'));
+window.addEventListener('resize',drawTL);
+drawTL();hudTick(true);syncNow();requestAnimationFrame(frame);
+loadData();
+</script>
+
+</body>
+</html>
