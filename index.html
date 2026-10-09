@@ -107,7 +107,10 @@ button{font:inherit;color:inherit}
 
 .tl-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
 .tl-title{font-family:var(--display);font-stretch:80%;font-weight:700;font-size:16px}
-.nowbtn{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+.tl-time{display:block;font-family:var(--mono);font-weight:600;font-size:20px;line-height:1.15;font-variant-numeric:tabular-nums}
+.tl-sub{display:block;font-family:var(--body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--dim);margin-top:2px}
+.tl-head .tl-title{min-width:0}
+.nowbtn{flex:none;white-space:nowrap;border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer}
 .nowbtn[aria-pressed="true"]{border-color:#245a43;color:#9ee6c2}
 .tlwrap{position:relative;border-radius:10px;outline-offset:3px}
 #tl{width:100%;height:132px;display:block;touch-action:pan-y;cursor:ew-resize}
@@ -215,9 +218,9 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="tlt">
+  <section class="panel" aria-label="Time of day">
     <div class="tl-head">
-      <div class="tl-title" id="tlt">Drag through the day</div>
+      <div class="tl-title" id="tlt"><span class="tl-time" id="tltime">—</span><span class="tl-sub" id="tlsub">Drag through the day</span></div>
       <button class="nowbtn" id="nowbtn" type="button" aria-pressed="true">Now</button>
     </div>
     <div class="tlwrap" id="tlwrap" tabindex="0" role="slider" aria-label="Time of day" aria-valuemin="0" aria-valuemax="1440" aria-valuenow="0">
@@ -475,7 +478,7 @@ function renderAlmanac(){
   const t=timesFor(dayIdx), ul=$('#almanac'); ul.innerHTML='';
   ROWS.forEach(([k,name,deg,col])=>{const d=t[k];const li=document.createElement('li');li.dataset.t=d.getTime();
     li.innerHTML=`<i class="d" style="background:${col}"></i><span class="n">${name}</span><span class="deg">${deg}</span><span class="t">${fmt(d)}</span>`;
-    if(!isNaN(d)) li.onclick=()=>setTime(d.getTime()); ul.appendChild(li)});
+    if(!isNaN(d)) li.onclick=()=>setTime(d.getTime()+(k==='solarNoon'?0:d<t.solarNoon?10:-10)); ul.appendChild(li)}); // just inside the phase
   // moon + day facts
   const mid=new Date(dayStart(dayIdx)+12*HOUR), mi=SC.getMoonIllumination(mid);
   $('#moonname').textContent=moonName(mi.phase); $('#moonsub').textContent=`${Math.round(mi.fraction*100)}% lit`;
@@ -497,7 +500,7 @@ function renderTwi(){
       b.type='button';b.dataset.t=ok?d.getTime():'';b.disabled=!ok;b.setAttribute('aria-pressed','false');
       b.setAttribute('aria-label',`${full}, ${ok?fmtSec(d):'doesn’t happen today'}`); // e.g. no astronomical night in a northern summer
       b.innerHTML=`<span><i style="background:${col}"></i>${short}</span><b>${fmtSec(d)}</b>`;
-      if(ok) b.onclick=()=>setTime(d.getTime());
+      if(ok) b.onclick=()=>setTime(d.getTime()+(row==='Dawn'?10:-10)); // land just inside the named phase, not on its edge
       el.appendChild(b)}}
   markTwi()}
 function markTwi(){document.querySelectorAll('#twi button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t!==''&&Math.abs(+b.dataset.t-selT)<MIN))}
@@ -542,7 +545,11 @@ function drawTL(){
   const wd=wall(d0+12*HOUR);
   c.textAlign='center';[0,3,6,9,12,15,18,21,24].forEach(h=>{const lab=h===0||h===24?'12a':h===12?'12p':h<12?h+'a':(h-12)+'p';const x=clamp(X(zoned(wd.y,wd.mo,wd.d,h)),10,W-10);if(W<420&&h%6)return;c.fillText(lab,x,H-5)});
   // thumb
-  const xs=X(selT);if(xs>=0&&xs<=W){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(xs,0);c.lineTo(xs,cy1);c.stroke();c.fillStyle='#fff';c.beginPath();c.arc(xs,bandH/2,6,0,7);c.fill();c.strokeStyle='#090e1a';c.lineWidth=2;c.stroke()}
+  const xs=X(selT);if(xs>=0&&xs<=W){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(xs,0);c.lineTo(xs,cy1);c.stroke();c.fillStyle='#fff';c.beginPath();c.arc(xs,bandH/2,6,0,7);c.fill();c.strokeStyle='#090e1a';c.lineWidth=2;c.stroke();
+    // time label riding beside the thumb (flips to the left near the right edge)
+    const lab=fmt(new Date(selT));c.font='600 11px "JetBrains Mono",monospace';const lw=c.measureText(lab).width+12,lx=xs+10+lw>W?xs-10-lw:xs+10;
+    c.fillStyle='rgba(9,14,26,.88)';c.beginPath();c.roundRect?c.roundRect(lx,3,lw,16,8):c.rect(lx,3,lw,16);c.fill();
+    c.fillStyle='#fff';c.textAlign='left';c.textBaseline='middle';c.fillText(lab,lx+6,11.5);c.textBaseline='alphabetic'}
   drawMini(d0,span);
   const tw=$('#tlwrap');const mins=Math.round((selT-d0)/MIN);tw.setAttribute('aria-valuemax',Math.round(span/MIN));tw.setAttribute('aria-valuenow',mins);tw.setAttribute('aria-valuetext',fmt(new Date(selT)));
 }
@@ -595,6 +602,8 @@ function hudTick(force){
   $('#clock').innerHTML=`${fmtShort(d)}<small>${wall(d).h<12?'am':'pm'}</small>`;
   const ph=phaseOf(a), am=azc<180, tw=a<6&&a>=-18;
   $('#phase').textContent=tw?`${am?'Morning':'Evening'} ${ph.toLowerCase()}`:ph;
+  $('#tltime').textContent=fmt(d); // the timeline gets its own readout: the scene's clock is scrolled out of view down here
+  $('#tlsub').textContent=`${ph==='Blue hour'?`${am?'Morning':'Evening'} civil twilight, blue hour`:$('#phase').textContent} · sun ${a>=0?'':'−'}${Math.abs(a).toFixed(1)}°`;
   $('#alt').textContent=(Math.abs(a)<0.9?'Sun on the horizon':a>=0?`Sun ${a.toFixed(1)}° above the horizon`:`Sun ${Math.abs(a).toFixed(1)}° below the horizon`)+(ph==='Blue hour'?' · civil twilight':'');
   const cc=cloudAt(selT),pc=v=>Math.round(v*100);
   $('#cloudl').textContent=cc?`Cloud ${cc.total==null?'—':pc(cc.total)+'%'} · low ${pc(cc.low)} mid ${pc(cc.mid)} high ${pc(cc.high)}`
