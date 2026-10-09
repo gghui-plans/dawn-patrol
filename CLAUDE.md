@@ -57,6 +57,10 @@ It is a personal project. The owner opens it from a home-screen icon to check th
 - Copy is plain and direct, with no exclamation marks. Wind uses Beaufort names (e.g. "gentle breeze").
 - The dark palette is deliberate in every theme. Colours live as CSS tokens at the top of the `<style>` block.
 - The layout must work at 400px wide with no horizontal scrolling. Respect `prefers-reduced-motion`.
+- **Time can be changed on the scene itself**, so the sky stays in view while scrubbing:
+  - A horizontal drag on the sky nudges time. The full scene width is 6 hours, about a minute per pixel on a phone. Vertical drags still scroll the page (`touch-action: pan-y`).
+  - The slim strip along the bottom of the scene maps the whole day and marks the six twilight moments.
+  - The full timeline below stays as well, for the wind chart.
 
 ## Testing
 

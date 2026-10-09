@@ -57,6 +57,10 @@ button{font:inherit;color:inherit}
 /* scene */
 .scene{position:relative;height:clamp(360px,62vh,600px);border-radius:18px;overflow:hidden;background:#04060c;isolation:isolate}
 .scene canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.scene{touch-action:pan-y;cursor:ew-resize} /* horizontal drags scrub the time; vertical ones still scroll the page */
+.scene canvas.mini{inset:auto;left:12px;bottom:6px;width:calc(100% - 24px);height:24px;z-index:3;touch-action:none}
+.hint{position:absolute;z-index:3;left:50%;top:46%;transform:translateX(-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.55);color:#fff;white-space:nowrap;pointer-events:none;transition:opacity .5s}
+.hint.gone{opacity:0}
 .scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(3,6,14,.42),rgba(3,6,14,0) 30%,rgba(3,6,14,0) 62%,rgba(3,6,14,.55));z-index:1}
 .hud{position:absolute;z-index:2;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.45)}
 .hud-time{top:14px;left:16px;right:96px}
@@ -72,7 +76,7 @@ button{font:inherit;color:inherit}
 .gauge .tick.zero::after{width:14px;height:2px;background:#fff}
 .gauge .dot{position:absolute;right:3px;width:12px;height:12px;border-radius:50%;transform:translateY(-50%);background:var(--sun);box-shadow:0 0 12px 3px #f4a25988;transition:top .2s linear}
 .gauge .dot.below{background:#f4a25966;box-shadow:none;border:1px solid #f4a259}
-.hud-wind{left:16px;bottom:14px;right:16px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.hud-wind{left:16px;bottom:36px;right:16px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;opacity:.8}
 .windnum{display:flex;align-items:flex-end;gap:10px}
 .speed{font-family:var(--display);font-stretch:62%;font-weight:700;font-size:clamp(44px,11vw,60px);line-height:.85;font-variant-numeric:tabular-nums}
@@ -197,6 +201,8 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       </div>
       <div class="facing" id="facing">Facing E<br>sun 96°</div>
     </div>
+    <canvas class="mini" id="mini" aria-hidden="true"></canvas>
+    <div class="hint" id="hint" hidden>Drag the sky to change the time</div>
   </section>
 
   <section class="panel" aria-labelledby="vh">
@@ -537,8 +543,39 @@ function drawTL(){
   c.textAlign='center';[0,3,6,9,12,15,18,21,24].forEach(h=>{const lab=h===0||h===24?'12a':h===12?'12p':h<12?h+'a':(h-12)+'p';const x=clamp(X(zoned(wd.y,wd.mo,wd.d,h)),10,W-10);if(W<420&&h%6)return;c.fillText(lab,x,H-5)});
   // thumb
   const xs=X(selT);if(xs>=0&&xs<=W){c.strokeStyle='#fff';c.lineWidth=2;c.beginPath();c.moveTo(xs,0);c.lineTo(xs,cy1);c.stroke();c.fillStyle='#fff';c.beginPath();c.arc(xs,bandH/2,6,0,7);c.fill();c.strokeStyle='#090e1a';c.lineWidth=2;c.stroke()}
+  drawMini(d0,span);
   const tw=$('#tlwrap');const mins=Math.round((selT-d0)/MIN);tw.setAttribute('aria-valuemax',Math.round(span/MIN));tw.setAttribute('aria-valuenow',mins);tw.setAttribute('aria-valuetext',fmt(new Date(selT)));
 }
+/* Scrubbing on the scene itself, so the sky stays in view while the time changes:
+   - the slim strip along the bottom maps the whole day across its width (tap or drag to jump anywhere)
+   - a horizontal drag anywhere else on the sky nudges time: the full scene width is 6 hours, about a minute per
+     pixel on a phone, fine enough to land on a twilight moment. Vertical drags are left to the page (touch-action). */
+const mini=$('#mini'), mctx=mini.getContext('2d');
+function drawMini(d0,span){
+  const W=mini.clientWidth,H=mini.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
+  if(mini.width!==Math.round(W*dpr)){mini.width=Math.round(W*dpr);mini.height=Math.round(H*dpr)}
+  const c=mctx,X=t=>(t-d0)/span*W,y=H/2;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
+  c.save();c.beginPath();c.roundRect?c.roundRect(0,y-2.5,W,5,2.5):c.rect(0,y-2.5,W,5);c.clip();
+  bandCache.forEach((col,m)=>{c.fillStyle=col;c.fillRect(Math.floor(m/288*W),y-2.5,Math.ceil(W/288)+1,5)});c.restore();
+  const t=timesFor(dayIdx);c.fillStyle='rgba(255,255,255,.6)';
+  ['nightEnd','nauticalDawn','dawn','dusk','nauticalDusk','night'].forEach(k=>{const x=X(t[k]);if(!isNaN(x))c.fillRect(Math.round(x)-0.5,y-6,1,12)});
+  const xs=clamp(X(selT),6,W-6);c.fillStyle='#fff';c.beginPath();c.arc(xs,y,6,0,7);c.fill();c.strokeStyle='rgba(3,6,14,.5)';c.lineWidth=1.5;c.stroke();
+}
+const hint=$('#hint');
+function dismissHint(){store.set('dp.scrubHint',true);if(hint.hidden)return;hint.classList.add('gone');setTimeout(()=>hint.hidden=true,500)}
+if(!store.get('dp.scrubHint',false)){hint.hidden=false;setTimeout(()=>{hint.classList.add('gone');setTimeout(()=>hint.hidden=true,500)},6000)}
+let miniDrag=false;
+const tFromMini=e=>{const r=mini.getBoundingClientRect(),d0=dayStart(dayIdx);return d0+clamp((e.clientX-r.left)/r.width,0,0.9993)*(dayStart(dayIdx+1)-d0)};
+mini.addEventListener('pointerdown',e=>{miniDrag=true;mini.setPointerCapture(e.pointerId);setTime(tFromMini(e));dismissHint()});
+mini.addEventListener('pointermove',e=>{if(miniDrag)setTime(tFromMini(e))});
+['pointerup','pointercancel'].forEach(n=>mini.addEventListener(n,()=>miniDrag=false));
+const scene=$('#scene');let sx=null,sy=0,st=0,scrub=false,spid=null;
+scene.addEventListener('pointerdown',e=>{if(e.target===mini||e.button>0)return;sx=e.clientX;sy=e.clientY;st=selT;scrub=false;spid=e.pointerId});
+scene.addEventListener('pointermove',e=>{
+  if(sx==null||e.pointerId!==spid)return;const dx=e.clientX-sx,dy=e.clientY-sy;
+  if(!scrub){if(Math.abs(dx)<8||Math.abs(dx)<Math.abs(dy))return;scrub=true;scene.setPointerCapture(spid);dismissHint()}
+  setTime(st+dx/scene.clientWidth*6*HOUR)});
+['pointerup','pointercancel'].forEach(n=>scene.addEventListener(n,()=>{sx=null;scrub=false}));
 function setTime(t){follow=false;selT=clamp(t,dayStart(dayIdx),dayStart(dayIdx+1)-MIN);syncNow();drawTL();hudTick(true)}
 function syncNow(){const b=$('#nowbtn');b.setAttribute('aria-pressed',follow);b.textContent=follow?'Following now':'Jump to now'}
 let dragging=false;
