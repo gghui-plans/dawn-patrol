@@ -22,13 +22,20 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - Added on top: a twilight "fill" term and a horizon glow toward the sun, because single scattering alone makes twilight too dark.
   - Also drawn: stars, a moon with the correct phase, and a distant shoreline silhouette.
   - **Night sky:** airglow that brightens toward the horizon (darkest overhead, as in reality), so the horizon and shoreline stay visible at night. An optional warm city glow sits low on the horizon (a setting, on by default) and washes out the faintest stars. Moonlight scales with phase (steeply: a quarter moon is far dimmer than half a full moon) and with the moon's height. It adds a blue scattered-light sky and a halo, a moon glitter path on the water using the same model as the sun's, and a disc and path that redden near the horizon.
+  - **Clouds:** three layers from the forecast's low, mid and high cover (shells at 1.6, 4.5 and 9.5 km): roughly 1 km cumulus, smaller mid-level cloud, and cirrus streaked along the wind. Detail too small for a pixel fades to its average, so clouds near the horizon blend into a band. They drift with the wind, offset by the selected time, so scrubbing shows them move.
+    - **Lighting:** sunlight per layer, set in JS so higher clouds stay lit longer after sunset; light diffused through the cloud; direct light on cloud bases when the sun is low; bright edges near the sun; sky light from a JS port of the atmosphere (`atmoJS`, keep it in step with the shader); and city glow on the bases at night.
+    - **Effects:** clouds block the sun, moon and stars, appear in water reflections, and dim the sun and moon glitter when they pass in front.
+    - **Noise:** the lattice hash uses exact integer arithmetic (a mod-289 permutation). Float hashes produced straight seams once the GPU compiler reordered the maths. Don't swap it back.
   - **Stars:** a random field with many faint stars and few bright ones, coloured by temperature, each at least about a pixel wide at any render scale. It turns about the true celestial pole with local sidereal time (checked against Vega's real position), so dragging through the night sweeps the stars from east to west.
   - **Water:** a sum of 12 wind-driven waves with analytic slopes, moving at deep-water speed. Steepness and wavelength grow with the wind. Waves smaller than about 2 pixels fade out, and their slope variance moves into a microfacet roughness term instead of aliasing. That roughness blurs the shoreline reflection and shapes the sun glitter path, a Beckmann highlight lit by the same sun as the atmosphere. Gust patches roughen and darken the surface, and whitecaps appear above roughly 25 km/h. Don't go back to value-noise heightfields or hard reflection tests: they produce blocky slabs and hard-edged black patches.
   - **Exposure:** rises as the sun sets, the way a camera would adapt.
   - **Performance:** the render scale drops if frames are slow and climbs back when they're steady, but never back to a scale that already proved too slow. The first 1.5 seconds are ignored. The frame rate is capped at about 30 fps.
-- **Sun and moon math** is an inline port of SunCalc (BSD licence, credited in the code). It provides positions, twilight times (−18°, −12°, −6°, −0.833°, −4° blue hour, +6° golden hour), moon position, illumination and phase.
+- **Sun and moon math** is an inline port of SunCalc (BSD licence, credited in the code), with two upgrades:
+  - **Sun position** uses the NOAA solar calculator equations, not SunCalc's low-precision sun, which drifts by about 0.2°.
+  - **Event times** (−18°, −12°, −6°, −0.833°, −4° blue hour, +6° golden hour) start from SunCalc's `getTimes`, then `timesFor()` refines each one by bisection on the sun's actual altitude. They match NOAA to the second.
+  - Moon position, illumination and phase are still SunCalc.
 - **Wind data** comes from the Open-Meteo hourly forecast: free, no API key, and free for non-commercial use.
-  - It fetches 3 days of hourly speed, gusts, direction, precipitation chance and temperature in km/h.
+  - It fetches 3 days of hourly speed, gusts, direction, precipitation chance, temperature and cloud cover (total, low, mid, high), with wind in km/h. The preview fallback has no cloud data, so it shows a clear sky and the HUD says "no data in preview."
   - While the first fetch is in flight, the UI shows a loading state, not preview data.
   - If the fetch fails, `previewData()` supplies a fixed Toronto estimate pinned to Oct 9–11 2026, and the UI labels it as preview data. Days outside those dates show no wind.
   - It refetches when the forecast is over 30 minutes old or didn't load. This is checked every minute and whenever the app returns to the foreground. If a refresh fails, the app keeps the last live forecast and flags it as possibly out of date. The day tabs roll over at midnight.
@@ -63,6 +70,7 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - 0° (sunrise)
   - +10° (low daylight)
   - noon
+- **Check clouds:** run `cloudAt=()=>({low:.4,mid:.2,high:.3,total:.6})` in the console to fake cover. Check a sunny afternoon, a sunset at +1°, dusk at −4°, overcast (`low:1`) and night with city glow. Open a fresh tab to restore the forecast.
 - **Check moonlight:** the real moon may be new, so fake one in the console. Run `SC.getMoonIllumination=()=>({fraction:1,phase:0.5}); SC.getMoonPosition=()=>({azimuth:-45*DEG,altitude:18*DEG})`, then jump to a night time. This gives a full moon 18° up in the south-east. Open a fresh tab afterwards to restore the real moon.
 
 ## Hosting
@@ -71,7 +79,6 @@ Static files only. GitHub Pages, Netlify or the owner's own website all work. It
 
 ## Ideas not built yet
 
-- Clouds driven by the forecast `cloud_cover` (the biggest realism gain).
 - An hourly temperature and precipitation strip under the wind chart.
 - Several saved locations with quick switching.
 - A service worker for offline use with the last forecast cached.

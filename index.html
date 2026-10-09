@@ -107,6 +107,14 @@ button{font:inherit;color:inherit}
 .nowbtn[aria-pressed="true"]{border-color:#245a43;color:#9ee6c2}
 .tlwrap{position:relative;border-radius:10px;outline-offset:3px}
 #tl{width:100%;height:132px;display:block;touch-action:pan-y;cursor:ew-resize}
+.twi{display:grid;grid-template-columns:auto repeat(3,minmax(0,1fr));gap:6px;align-items:center;margin-top:12px}
+.twi .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding-right:4px}
+.twi button{border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 4px;cursor:pointer;text-align:center;line-height:1.2;min-width:0}
+.twi button span{display:block;font-size:11px;color:var(--dim)}
+.twi button b{display:block;font-family:var(--mono);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.twi button i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:1px}
+.twi button[aria-pressed="true"]{background:var(--panel-2);border-color:#3a4c75}
+.twi button:disabled{opacity:.45;cursor:default}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dim)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
@@ -168,6 +176,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <div class="clock" id="clock">6:55<small>am</small></div>
       <div class="phase" id="phase">Civil twilight</div>
       <div class="alt" id="alt">Sun 3.1° below the horizon</div>
+      <div class="alt" id="cloudl"></div>
     </div>
     <div class="hud gauge" aria-hidden="true">
       <div class="rail"></div>
@@ -208,6 +217,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     <div class="tlwrap" id="tlwrap" tabindex="0" role="slider" aria-label="Time of day" aria-valuemin="0" aria-valuemax="1440" aria-valuenow="0">
       <canvas id="tl"></canvas>
     </div>
+    <div class="twi" id="twi" aria-label="Jump to a twilight time"></div>
     <div class="legend">
       <span><i class="sw" style="background:var(--go)"></i>Calm</span>
       <span><i class="sw" style="background:var(--maybe)"></i>Manageable</span>
@@ -274,6 +284,7 @@ const zoned=(y,mo,d,h=0,mi=0)=>{ // wall-clock time at the location -> epoch ms 
   return g-off(g-off(g))};
 const fmt=d=>{if(!d||isNaN(d))return '—';const w=wall(d);return `${w.h%12||12}:${pad(w.mi)} ${w.h<12?'am':'pm'}`};
 const fmtShort=d=>{const w=wall(d);return `${w.h%12||12}:${pad(w.mi)}`};
+const fmtSec=d=>{if(!d||isNaN(d))return '—';const w=wall(d);return `${w.h%12||12}:${pad(w.mi)}:${pad(w.s)} ${w.h<12?'am':'pm'}`};
 const fmtDate=(t,o)=>new Date(t).toLocaleDateString('en-CA',{...o,timeZone:loc.tz||undefined});
 const tzAbbr=t=>{const p=new Intl.DateTimeFormat('en-CA',{timeZone:loc.tz||undefined,timeZoneName:'short'}).formatToParts(new Date(t)).find(x=>x.type==='timeZoneName');return p?p.value:''};
 const DEG=Math.PI/180, HOUR=36e5, MIN=6e4;
@@ -294,7 +305,17 @@ const sid=(d,lw)=>rad*(280.16+360.9856235*d)-lw;
 const M_=d=>rad*(357.5291+0.98560028*d);
 const L_=M=>M+rad*(1.9148*Math.sin(M)+0.02*Math.sin(2*M)+0.0003*Math.sin(3*M))+rad*102.9372+PI;
 const sunC=d=>{const L=L_(M_(d));return{dec:dec(L,0),ra:ra(L,0)}};
-function getPosition(date,lat,lng){const lw=rad*-lng,phi=rad*lat,d=toDays(date),c=sunC(d),H=sid(d,lw)-c.ra;return{azimuth:az(H,phi,c.dec),altitude:alt(H,phi,c.dec)}}
+// Sun position from the NOAA solar calculator equations (after Meeus): good to well under 0.01°, where SunCalc's
+// low-precision sun drifts by ~0.2° (about a minute in twilight times). Same return shape as SunCalc.
+function getPosition(date,lat,lng){
+  const T=(toJ(date)-J2000)/36525,M=rad*(357.52911+T*(35999.05029-0.0001537*T)),L0=rad*((280.46646+T*(36000.76983+0.0003032*T))%360);
+  const e=0.016708634-T*(0.000042037+0.0000001267*T),om=rad*(125.04-1934.136*T);
+  const C=rad*(Math.sin(M)*(1.914602-T*(0.004817+0.000014*T))+Math.sin(2*M)*(0.019993-0.000101*T)+Math.sin(3*M)*0.000289);
+  const lam=L0+C-rad*(0.00569+0.00478*Math.sin(om)),eps=rad*(23+(26+(21.448-T*(46.815+T*(0.00059-T*0.001813)))/60)/60+0.00256*Math.cos(om));
+  const de=Math.asin(Math.sin(eps)*Math.sin(lam)),y=Math.tan(eps/2)**2;
+  const eqt=4/rad*(y*Math.sin(2*L0)-2*e*Math.sin(M)+4*e*y*Math.sin(M)*Math.cos(2*L0)-0.5*y*y*Math.sin(4*L0)-1.25*e*e*Math.sin(2*M)); // minutes
+  const H=rad*((((date.valueOf()/6e4)%1440+1440)%1440+eqt+4*lng)/4-180),phi=rad*lat;                                         // hour angle
+  return{azimuth:az(H,phi,de),altitude:alt(H,phi,de)}}
 const J0=0.0009, cyc=(d,lw)=>Math.round(d-J0-lw/(2*PI)), apx=(Ht,lw,n)=>J0+(Ht+lw)/(2*PI)+n;
 const transit=(ds,M,L)=>J2000+ds+0.0053*Math.sin(M)-0.0069*Math.sin(2*L);
 const ha=(h,phi,d)=>Math.acos((Math.sin(h)-Math.sin(phi)*Math.sin(d))/(Math.cos(phi)*Math.cos(d)));
@@ -321,7 +342,21 @@ let LIM=store.get('dp.lim',{good:25,rough:35});
 let GLOW=store.get('dp.glow',true); // city glow on the night horizon
 let data=null, loading=true, dayIdx=0, follow=true, selT=Date.now();
 const dayStart=i=>{const w=wall(Date.now());return zoned(w.y,w.mo,w.d+i)}; // local midnight at the location
-const timesFor=i=>SC.getTimes(new Date(dayStart(i)+12*HOUR),loc.lat,loc.lon);
+// Sun event times for day i. SunCalc's getTimes uses the sun's declination at noon for the whole day, which can put
+// twilight times out by a minute or so; each event is refined by bisection on the actual sun altitude, so jumping to
+// "nautical dusk" lands with the sun at −12.0°. Cached per day and location.
+const SUN_EVENTS=[[-0.833,'sunrise','sunset'],[-6,'dawn','dusk'],[-12,'nauticalDawn','nauticalDusk'],[-18,'nightEnd','night'],[6,'goldenHourEnd','goldenHour'],[-4,'blueEnd','blueStart']];
+const timesCache={};
+const timesFor=i=>{
+  const s=dayStart(i),key=`${s}|${loc.lat}|${loc.lon}`;if(timesCache[key])return timesCache[key];
+  const t=SC.getTimes(new Date(s+12*HOUR),loc.lat,loc.lon),alt=x=>SC.getPosition(new Date(x),loc.lat,loc.lon).altitude/DEG;
+  for(const [a,rise,set] of SUN_EVENTS)for(const [k,up] of [[rise,1],[set,-1]]){
+    const d=t[k];if(isNaN(d))continue;
+    let lo=d.getTime()-15*MIN,hi=d.getTime()+15*MIN;           // lo: before the crossing, hi: after it
+    if((alt(lo)-a)*up>=0||(alt(hi)-a)*up<=0)continue;          // no clean crossing nearby (polar edge cases): keep SunCalc's
+    for(let n=0;n<20;n++){const m=(lo+hi)/2;if((alt(m)-a)*up<0)lo=m;else hi=m}
+    t[k]=new Date((lo+hi)/2)}
+  return timesCache[key]=t};
 
 /* ---------- wind data ---------- */
 // Preview: Windy's daily figures for Toronto, Oct 9–11 2026 (wind / gusts, m/s): 6.9/10.8, 6.4/10.1, 4.8/7.7 with rain Sunday.
@@ -342,10 +377,11 @@ function previewData(){
   return{start:PREVIEW_START,sus,gust,dir,pop,temp:null,live:false};
 }
 async function fetchLive(){
-  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
   const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
   try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(); const h=j.hourly;
-    return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,live:true,fetched:Date.now()};
+    return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,
+      cc:h.cloud_cover,cl:h.cloud_cover_low,cm:h.cloud_cover_mid,ch:h.cloud_cover_high,live:true,fetched:Date.now()};
   }finally{clearTimeout(to)}
 }
 function windAt(t){
@@ -355,6 +391,12 @@ function windAt(t){
   const d1=data.dir[i],d2=data.dir[j],dd=((d2-d1+540)%360)-180;
   const k=Math.round(x);
   return{sus:L(data.sus),gust:L(data.gust),dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[k]:null,temp:L(data.temp)};
+}
+// Cloud cover (0–1) for each layer at time t, interpolated between forecast hours. Null without cloud data (preview).
+function cloudAt(t){
+  if(!data||!data.cl) return null; const x=(t-data.start)/HOUR, n=data.cl.length; if(x<0||x>n-1) return null;
+  const i=Math.floor(x),f=x-i,j=Math.min(i+1,n-1),L=a=>a[i]==null||a[j]==null?null:(a[i]+(a[j]-a[i])*f)/100;
+  const r={low:L(data.cl),mid:L(data.cm),high:L(data.ch),total:L(data.cc)}; return r.low==null?null:r;
 }
 function status(w){
   if(!w) return -1;
@@ -435,7 +477,24 @@ function renderAlmanac(){
   const mr=moonRiseSet(dayIdx), len=t.sunset-t.sunrise;
   const kv=[['Day length',isNaN(len)?'—':`${Math.floor(len/HOUR)} h ${pad(Math.round(len%HOUR/MIN))} min`],['Civil daylight',`${fmt(t.dawn)} – ${fmt(t.dusk)}`],['Moonrise',mr.rise?fmt(mr.rise):'none'],['Moonset',mr.set?fmt(mr.set):'none'],['Blue hour (evening)',`${fmt(t.blueStart)} – ${fmt(t.dusk)}`]];
   $('#daykv').innerHTML=kv.map(([a,b])=>`<dt>${a}</dt><dd>${b}</dd>`).join('');
+  renderTwi();
 }
+// Twilight jump buttons: the six twilight boundaries in time order, each showing its exact time.
+const TWI=[['Dawn',[['nightEnd','Astro','Astronomical dawn','#1e2d63'],['nauticalDawn','Nautical','Nautical dawn','#3a4f93'],['dawn','Civil','Civil dawn','#7a6fb0']]],
+           ['Dusk',[['dusk','Civil','Civil dusk','#7a6fb0'],['nauticalDusk','Nautical','Nautical dusk','#3a4f93'],['night','Astro','Astronomical dusk','#1e2d63']]]];
+function renderTwi(){
+  const t=timesFor(dayIdx),el=$('#twi');el.innerHTML='';
+  for(const [row,items] of TWI){
+    const l=document.createElement('span');l.className='lab';l.textContent=row;el.appendChild(l);
+    for(const [k,short,full,col] of items){
+      const d=t[k],ok=!isNaN(d),b=document.createElement('button');
+      b.type='button';b.dataset.t=ok?d.getTime():'';b.disabled=!ok;b.setAttribute('aria-pressed','false');
+      b.setAttribute('aria-label',`${full}, ${ok?fmtSec(d):'doesn’t happen today'}`); // e.g. no astronomical night in a northern summer
+      b.innerHTML=`<span><i style="background:${col}"></i>${short}</span><b>${fmtSec(d)}</b>`;
+      if(ok) b.onclick=()=>setTime(d.getTime());
+      el.appendChild(b)}}
+  markTwi()}
+function markTwi(){document.querySelectorAll('#twi button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t!==''&&Math.abs(+b.dataset.t-selT)<MIN))}
 function markAlmanac(){let cur=null;document.querySelectorAll('#almanac li').forEach(li=>{li.classList.remove('cur');if(+li.dataset.t<=selT)cur=li});if(cur)cur.classList.add('cur')}
 function moonName(p){if(p<0.03||p>0.97)return'New moon';if(p<0.22)return'Waxing crescent';if(p<0.28)return'First quarter';if(p<0.47)return'Waxing gibbous';if(p<0.53)return'Full moon';if(p<0.72)return'Waning gibbous';if(p<0.78)return'Last quarter';return'Waning crescent'}
 function moonRiseSet(i){const s=dayStart(i),e=dayStart(i+1);let prev=null,rise=null,set=null;for(let x=s;x<=e;x+=10*MIN){const a=SC.getMoonPosition(new Date(x),loc.lat,loc.lon).altitude;if(prev!=null){if(prev<0&&a>=0&&!rise)rise=new Date(x);if(prev>=0&&a<0&&!set)set=new Date(x)}prev=a}return{rise,set}}
@@ -500,6 +559,9 @@ function hudTick(force){
   const ph=phaseOf(a), am=azc<180, tw=a<6&&a>=-18;
   $('#phase').textContent=tw?`${am?'Morning':'Evening'} ${ph.toLowerCase()}`:ph;
   $('#alt').textContent=(Math.abs(a)<0.9?'Sun on the horizon':a>=0?`Sun ${a.toFixed(1)}° above the horizon`:`Sun ${Math.abs(a).toFixed(1)}° below the horizon`)+(ph==='Blue hour'?' · civil twilight':'');
+  const cc=cloudAt(selT),pc=v=>Math.round(v*100);
+  $('#cloudl').textContent=cc?`Cloud ${cc.total==null?'—':pc(cc.total)+'%'} · low ${pc(cc.low)} mid ${pc(cc.mid)} high ${pc(cc.high)}`
+    :!data?'':data.live?'Cloud: no forecast':'Cloud: no data in preview';
   const g=$('#gdot');g.style.top=clamp((30-a)/54*100,0,100)+'%';g.classList.toggle('below',a<0);
   $('.scrim').style.opacity=(0.45+0.55*sstep(-14,-4,a)).toFixed(2); // a dark sky doesn't need the full scrim behind the text
   const w=windAt(selT);
@@ -507,7 +569,7 @@ function hudTick(force){
     $('#wdir').textContent=`from ${card(w.dir)}`;$('#wbeau').textContent=beau(w.sus);$('#arrow').querySelector('path').setAttribute('transform',`rotate(${(w.dir+180)%360} 15 15)`)}
   else{$('#spd').innerHTML=`—<small>km/h</small>`;$('#gst').textContent='—';$('#wdir').textContent=!data&&loading?'loading forecast':'no forecast';$('#wbeau').textContent=''}
   $('#facing').innerHTML=`Facing ${card(camAzDeg)}<br>${Math.round(camAzDeg)}°`;
-  const m=Math.floor(selT/MIN); if(m!==lastMinute){lastMinute=m;markAlmanac();if(follow){drawTL();renderVerdict()}}
+  const m=Math.floor(selT/MIN); if(m!==lastMinute){lastMinute=m;markAlmanac();markTwi();if(follow){drawTL();renderVerdict()}}
 }
 
 /* ---------- sky renderer ---------- */
@@ -515,10 +577,15 @@ const VS=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
 const FS=`precision highp float;
 uniform vec2 uRes;uniform float uTime,uExpo,uStars,uCamAz,uPitch,uWind,uGust,uAmb,uMoonPhase,uMoonUp,uFill,uGlow,uCity,uMoonLight;
 uniform vec3 uSun,uMoon,uSunCol,uMoonCol,uMoonTint,uSX,uSY,uSZ;uniform vec2 uWindVec;
+uniform vec3 uCov,uCSunL,uCSunM,uCSunH,uCAmb;uniform vec2 uCOff; // clouds: cover (low, mid, high), sunlight per layer, sky light, drift
 #define PI 3.14159265
 const float RP=6371.0;const float RA=6471.0;
 float hash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
-float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+// Lattice hash from exact integer arithmetic (mod-289 permutation). Float hashes (sin or fract tricks) can give one
+// lattice corner different values from neighbouring cells once the compiler reorders the maths, which shows up as
+// straight seams in the clouds. Exact integers survive any reordering.
+float pm(float x){return mod((x*34.0+1.0)*x,289.0);}
+float h2(vec2 p){p=mod(p,289.0);return pm(pm(p.x)+p.y)/289.0;}
 float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y);}
 float n1(float x){float i=floor(x),f=fract(x);float a=fract(sin(i*127.1)*43758.5),b=fract(sin((i+1.0)*127.1)*43758.5);return mix(a,b,f*f*(3.0-2.0*f));}
 vec2 rsi(vec3 r0,vec3 rd,float sr){float b=dot(rd,r0);float c=dot(r0,r0)-sr*sr;float d=b*b-c;if(d<0.0)return vec2(1e5,-1e5);d=sqrt(d);return vec2(-b-d,-b+d);}
@@ -546,7 +613,7 @@ vec3 atmo(vec3 r){
    Many faint stars, few bright ones; each is at least about a pixel wide whatever the render scale.
    City glow washes out the faintest. Twinkle grows toward the horizon (lo = 1 at the horizon, 0 overhead). */
 vec3 stars(vec3 d,float lo){
-  const float K=110.0;vec3 p=vec3(dot(d,uSX),dot(d,uSY),dot(d,uSZ))*K;vec3 c=floor(p);float h=hash(c);if(h<0.962)return vec3(0.0);
+  const float K=110.0;vec3 p=vec3(dot(d,uSX),dot(d,uSY),dot(d,uSZ))*K;vec3 c=floor(p);float h=hash(c);if(h<0.952)return vec3(0.0);
   vec3 o=vec3(hash(c+3.1),hash(c+7.7),hash(c+11.3))*0.5+0.25;
   float m=hash(c+5.3);float b=0.07+0.93*m*m*m*m;
   b*=1.0-uCity*(1.0-smoothstep(0.12,0.3,b));
@@ -555,6 +622,42 @@ vec3 stars(vec3 d,float lo){
   return mix(vec3(1.0,0.82,0.64),vec3(0.74,0.84,1.0),hash(c+9.1))*b*exp(-2.0*q*q)*tw;}
 float treeH(vec3 d){float az=atan(d.x,d.z);float m=smoothstep(0.35,0.62,n1(az*1.4+9.0));
   return m*(0.006+0.014*n1(az*5.0+3.0)*n1(az*2.3+1.0)+0.003*n1(az*22.0));}
+/* Clouds: three layers from the forecast, as shells at real heights (low 1.6 km, mid 4.5 km, high cirrus 9.5 km).
+   Cover sets how much of the noise field becomes cloud; detail below the pixel footprint fades to its mean, so
+   clouds near the horizon blend into a band instead of aliasing. Lighting uses the same sun as the sky: sunlight per
+   layer (set in JS, so high clouds stay lit after sunset), diffuse light through the layer, direct light on the base
+   when the sun is low, forward scattering near the sun (silver linings), sky light, and city glow from below at night. */
+float vnC(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*f*(f*(f*6.0-15.0)+10.0); // quintic: no creases at cell edges
+  return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y);}
+float fbmC(vec2 p,float fp,float oct){
+  float s=0.0,a=0.5,f=1.0,nrm=0.0;
+  p+=1.4*vec2(vnC(p*0.37+11.0),vnC(p*0.37+27.0))-0.7;                 // gentle warp so no grid lines survive
+  for(int i=0;i<6;i++){if(float(i)>=oct)break;
+    s+=a*mix(0.5,vnC(p),1.0-smoothstep(0.3,0.6,fp*f));nrm+=a;
+    p=mat2(1.6,1.2,-1.2,1.6)*p+vec2(3.7,9.1);a*=0.5;f*=2.0;}
+  return s/nrm;}
+vec4 cloudLayer(vec3 d,float h,float cov,float freq,float aniso,float thick,vec3 sunL,float city,float oct){
+  if(cov<0.01) return vec4(0.0);
+  vec3 r0=vec3(0.0,RP+0.0012,0.0);float t=rsi(r0,d,RP+h).y;vec3 hp=r0+d*t;
+  vec2 w=uWindVec,p=hp.xz+uCOff;
+  vec2 q=vec2(dot(p,w),dot(p,vec2(-w.y,w.x))*aniso)*freq;            // aniso > 1 streaks cirrus along the wind
+  float fp=(1.3/uRes.y)*t/sqrt(max(dot(d,normalize(hp)),1e-3))*freq*aniso;
+  float n=fbmC(q,fp,oct),th=mix(0.78,0.2,cov);
+  float dens=max(smoothstep(th,th+0.26,n),smoothstep(0.8,1.0,cov)*(0.6+0.4*n))*smoothstep(0.0,0.06,cov);
+  float od=dens*thick,a=1.0-exp(-2.0*od);
+  float mu=max(dot(d,uSun),0.0),fwd=1.2*pow(mu,8.0)+5.0*pow(mu,80.0);
+  float Td=1.0/(1.0+0.6*od);                                           // diffuse transmission (thick-cloud limit)
+  float low=1.0-smoothstep(-0.05,0.25,uSun.y);                         // low sun reaches the base directly
+  vec3 col=sunL*(0.29*Td*max(uSun.y,0.03)+0.08*low*(0.5+0.5*exp(-0.5*od))+0.05*fwd*Td)
+          +(uCAmb+uCity*city*vec3(0.03,0.018,0.009))*(0.6+0.4*Td);
+  return vec4(col,a*exp(-t*0.006));                                    // distant clouds fade into the haze
+}
+vec4 clouds(vec3 d,float oct){ // premultiplied colour, transmittance in .a; composited far to near
+  vec3 C=vec3(0.0);float T=1.0;vec4 l;
+  l=cloudLayer(d,9.5,uCov.z,0.12,4.0,0.35,uCSunH,0.15,oct-1.0);C=C*(1.0-l.a)+l.rgb*l.a;T*=1.0-l.a;
+  l=cloudLayer(d,4.5,uCov.y,0.6,1.3,1.4,uCSunM,0.5,oct);C=C*(1.0-l.a)+l.rgb*l.a;T*=1.0-l.a;
+  l=cloudLayer(d,1.6,uCov.x,0.8,1.0,3.0,uCSunL,1.0,oct);C=C*(1.0-l.a)+l.rgb*l.a;T*=1.0-l.a;   // ~1 km cumulus
+  return vec4(C,T);}
 vec3 sky(vec3 d,float disc){ // disc=0 leaves out the sun and moon discs (the water adds its own glitter for both)
   vec3 c=atmo(d);
   float mu=dot(d,uSun);
@@ -577,6 +680,7 @@ vec3 sky(vec3 d,float disc){ // disc=0 leaves out the sun and moon discs (the wa
   // moonlight scattered by the air: blue that brightens toward the horizon, plus a halo around the moon
   c+=uMoonLight*(vec3(0.20,0.42,1.0)*0.012*(0.75+0.25*mm*mm)*(1.0+1.2*(1.0-hz))+vec3(1.0,0.92,0.8)*(0.03*pow(max(mm,0.0),30.0)+0.004*pow(max(mm,0.0),4.0)));
   c+=0.35*stars(d,1.0-hz)*uStars*smoothstep(-0.01,0.09,ay)*(1.0-0.6*uMoonLight);
+  if(uCov.x+uCov.y+uCov.z>0.01){vec4 cl=clouds(d,disc>0.5?5.0:3.0);c=c*cl.a+cl.rgb;} // reflections use less detail
   return c;
 }
 vec3 shore(vec3 c){return mix(c*0.035,c,0.10);}
@@ -617,11 +721,14 @@ vec3 water(vec3 d){
   vec3 H=normalize(uSun+V);float nh=max(dot(n,H),0.05),nh2=nh*nh;
   float D=exp(-(1.0-nh2)/(nh2*v))/(PI*v*nh2*nh2);
   float Fh=0.02+0.98*pow(1.0-max(dot(H,V),0.0),5.0);
-  c+=uSunCol*min(22.0*D*Fh/(4.0*nv),60.0)*smoothstep(-0.01,0.01,uSun.y);
+  // clouds between the water and the sun or moon dim their glitter
+  float sunVis=1.0,moonVis=1.0;
+  if(uCov.x+uCov.y+uCov.z>0.01){if(uSun.y>-0.02)sunVis=clouds(uSun,3.0).a;if(uMoonLight>0.0)moonVis=clouds(uMoon,3.0).a;}
+  c+=uSunCol*sunVis*min(22.0*D*Fh/(4.0*nv),60.0)*smoothstep(-0.01,0.01,uSun.y);
   // moon glitter: same model, lit by the moon (brightness from its phase and height, set in JS)
   if(uMoonLight>0.0){vec3 Hm=normalize(uMoon+V);float nm=max(dot(n,Hm),0.05),nm2=nm*nm;
     float Dm=exp(-(1.0-nm2)/(nm2*v))/(PI*v*nm2*nm2);float Fm=0.02+0.98*pow(1.0-max(dot(Hm,V),0.0),5.0);
-    c+=uMoonCol*min(1.2*Dm*Fm/(4.0*nv),3.0)*smoothstep(-0.01,0.02,uMoon.y);}
+    c+=uMoonCol*moonVis*min(1.2*Dm*Fm/(4.0*nv),3.0)*smoothstep(-0.01,0.02,uMoon.y);}
   // whitecaps on crests when it's windy; far away they average into a faint sheen
   float cov=smoothstep(0.45,0.95,uWind+uGust*0.25)*(0.6+0.4*patchN);
   float crest=smoothstep(0.62,0.9,0.5+0.5*h/(0.6*hs+1e-4));
@@ -654,7 +761,7 @@ function initGL(){
   prog=gl.createProgram();gl.attachShader(prog,v);gl.attachShader(prog,f);gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))return false;
   gl.useProgram(prog);const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
   const loc_=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc_);gl.vertexAttribPointer(loc_,2,gl.FLOAT,false,0,0);
-  ['uRes','uTime','uExpo','uStars','uCamAz','uPitch','uWind','uGust','uAmb','uMoonPhase','uMoonUp','uFill','uGlow','uSun','uMoon','uSunCol','uWindVec','uCity','uMoonLight','uMoonCol','uMoonTint','uSX','uSY','uSZ'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  ['uRes','uTime','uExpo','uStars','uCamAz','uPitch','uWind','uGust','uAmb','uMoonPhase','uMoonUp','uFill','uGlow','uSun','uMoon','uSunCol','uWindVec','uCity','uMoonLight','uMoonCol','uMoonTint','uSX','uSY','uSZ','uCov','uCSunL','uCSunM','uCSunH','uCAmb','uCOff'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   return true;
 }
 function resize(){const r=cv.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);const s=dpr*scale;const w=Math.max(1,Math.round(r.width*s)),h=Math.max(1,Math.round(r.height*s));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}}
@@ -664,6 +771,21 @@ function sunTransmit(alt){ // colour of the solar disc after passing through the
   const b=r0*dir[1],c=r0*r0-6471*6471,t=-b+Math.sqrt(b*b-c),st=t/16;let oR=0,oM=0;
   for(let i=0;i<16;i++){const s=st*(i+.5),x=dir[0]*s,y=r0+dir[1]*s,h=Math.max(Math.hypot(x,y)-6371,0);oR+=Math.exp(-h/8)*st;oM+=Math.exp(-h/1.2)*st}
   return kR.map(k=>Math.exp(-(k*oR+kM*oM)));
+}
+// The shader's atmosphere (atmo) ported to JS, run a few times per frame to get the sky light that falls on cloud bases.
+// Keep it in step with the shader if the scattering constants change.
+function atmoJS(r,sun){
+  const RP=6371,RA=6471,kR=[5.5e-3,13e-3,22.4e-3],kM=21e-3,g=0.758,dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const rsi=(r0,rd,sr)=>{const b=dot(rd,r0),d=b*b-dot(r0,r0)+sr*sr;if(d<0)return[1e5,-1e5];const s=Math.sqrt(d);return[-b-s,-b+s]};
+  const r0=[0,RP+0.4,0];let tE=rsi(r0,r,RA)[1];const pp=rsi(r0,r,RP);if(pp[0]<pp[1]&&pp[0]>0)tE=Math.min(tE,pp[0]);
+  const st=tE/12,mu=dot(r,sun),mm=mu*mu,gg=g*g,pR=3/(16*Math.PI)*(1+mm),pM=3/(8*Math.PI)*((1-gg)*(mm+1))/(Math.pow(Math.max(1+gg-2*mu*g,1e-4),1.5)*(2+gg));
+  let oR=0,oM=0;const tR=[0,0,0],tM=[0,0,0];
+  for(let i=0;i<12;i++){const ip=r0.map((v,k)=>v+r[k]*st*(i+.5)),ih=Math.hypot(...ip)-RP,dR=Math.exp(-ih/8)*st,dM=Math.exp(-ih/1.2)*st;oR+=dR;oM+=dM;
+    const sp=rsi(ip,sun,RP);if(sp[0]<sp[1]&&sp[0]>0)continue;
+    const js=rsi(ip,sun,RA)[1]/6;let jR=0,jM=0;
+    for(let q=0;q<6;q++){const jh=Math.max(Math.hypot(...ip.map((v,k)=>v+sun[k]*js*(q+.5)))-RP,0);jR+=Math.exp(-jh/8)*js;jM+=Math.exp(-jh/1.2)*js}
+    for(let k=0;k<3;k++){const at=Math.exp(-(kM*(oM+jM)+kR[k]*(oR+jR)));tR[k]+=dR*at;tM[k]+=dM*at}}
+  return[0,1,2].map(k=>22*(pR*kR[k]*tR[k]+pM*kM*tM[k]));
 }
 const vec=(az,alt)=>[Math.sin(az)*Math.cos(alt),Math.sin(alt),Math.cos(az)*Math.cos(alt)];
 let lastTs=0, ema=0.03, animT=0;
@@ -707,6 +829,17 @@ function frame(ts){
   const lst=(280.16+360.9856235*(selT/864e5-0.5+2440588-2451545)+loc.lon)*DEG, cL=Math.cos(lst), sL=Math.sin(lst), cP=Math.cos(loc.lat*DEG), sP=Math.sin(loc.lat*DEG);
   gl.uniform3f(U.uSX,-sL,cL*cP,-cL*sP);gl.uniform3f(U.uSY,cL,sL*cP,-sL*sP);gl.uniform3f(U.uSZ,0,sP,cP);
   gl.uniform1f(U.uAmb,0.003+0.28*sstep(-12,20,altD)+0.006*moonL);
+  // clouds: forecast cover, drift with the wind (from the selected time, so scrubbing shows them move), and lighting
+  const cc=cloudAt(selT);
+  if(cc){gl.uniform3f(U.uCov,cc.low,cc.mid,cc.high);
+    const hrs=(selT-dayStart(0))/HOUR, drift=hrs*(w.sus*1.5+10); // winds aloft: stronger than at the surface
+    gl.uniform2f(U.uCOff,-Math.sin(trav)*drift,-Math.cos(trav)*drift);
+    // sunlight reaching each layer: a cloud h km up still sees the sun until it is acos(R/(R+h)) below the horizon
+    const layerSun=h=>{const a=alt+Math.acos(6371/(6371+h)),tr=sunTransmit(Math.max(a,-0.02)),v=22*sstep(-0.6,0.4,a/DEG);return tr.map(x=>x*v)};
+    gl.uniform3fv(U.uCSunL,layerSun(1.6));gl.uniform3fv(U.uCSunM,layerSun(4.5));gl.uniform3fv(U.uCSunH,layerSun(9.5));
+    const sv=[0,Math.sin(alt),Math.cos(alt)],z=atmoJS([0,1,0],sv),ht=atmoJS([0,0.08,0.997],sv),ha=atmoJS([0,0.08,-0.997],sv);
+    gl.uniform3f(U.uCAmb,...[0,1,2].map(k=>z[k]+0.12*(ht[k]+ha[k])+moonL*[0.010,0.016,0.03][k]+0.0012));
+  }else gl.uniform3f(U.uCov,0,0,0);
   gl.uniform1f(U.uMoonPhase,mi.phase);gl.uniform1f(U.uMoonUp,mp.altitude>-0.02?1:0);
   gl.uniform3fv(U.uSun,vec(sAz,alt));gl.uniform3fv(U.uMoon,vec(mAz,mp.altitude));gl.uniform3fv(U.uSunCol,sunTransmit(alt));
   gl.uniform2f(U.uWindVec,Math.sin(trav),Math.cos(trav));
