@@ -23,6 +23,12 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - **Drawing:** the map redraws only when something changes, and the WebGL sky pauses while it shows.
   - **Tile provider:** Esri works without a key for personal, non-commercial use, and the credit line ("Esri, HERE, Garmin, © OpenStreetMap contributors") must stay. CARTO, the first choice, now watermarks keyless tiles. Stadia (free account, domain registered) is the next fallback. Change the provider in `BASEMAP` and the `.attrib` credit.
   - **Commercial use** would need an ArcGIS account and key (or Stadia Starter), plus a paid Open-Meteo plan, hosting other than GitHub Pages, and removing `previewData()`.
+  - **Wind layer:** one Open-Meteo request for a 7×7 grid (49 points) covering the view plus a 25% margin, fetched once panning or zooming has settled (600 ms).
+    - **Caching:** grids are cached for an hour, at most 6. A grid is reused while it covers the view and is no more than 3× wider than it.
+    - **Interpolation:** node winds are interpolated between forecast hours at the selected time, then bilinearly across the grid.
+    - **Streaks:** about 1 particle per 220 px², each drifting with the local wind (about 36 px/s at 20 km/h). They're coloured by speed with a legend under the credit, and their trails fade each frame. Moving the map clears the trails.
+    - **Reduced motion:** static arrows instead.
+    - **Status:** the centre note says "Loading wind…", "The wind map didn't load" or "No wind forecast for this time" when relevant.
 - **Sky renderer.** A WebGL1 fragment shader draws the scene.
   - Physically based single-scattering atmosphere: Rayleigh and Mie scattering, with an Earth-shadow test so the sky darkens correctly as the sun drops below the horizon.
   - Added on top: a twilight "fill" term and a horizon glow toward the sun, because single scattering alone makes twilight too dark.
@@ -121,8 +127,12 @@ A Windy-style map as a second view in the top scene, wave data, and two usage mo
 1. ~~Wave data at the spot: HUD readout, verdict sentence, timeline line, honest no-data states.~~ Done.
 2. ~~Two modes, with land at 35 / 50 km/h (the owner's choice).~~ Done.
 3. ~~Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.~~ Done.
-4. Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.
+4. ~~Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.~~ Done.
 5. Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.
+   - **Wave direction**, as Windy shows it: slow-moving lines travelling the way the combined waves go, drawn lighter than the wind streaks so the layers can't be confused.
+   - Swell direction appears only when swell is at least 0.2 m, the same rule as the HUD.
+   - With reduced motion, show static arrows instead.
+   - The marine grid already includes direction, so this costs no extra data.
 6. Polish: loading and failure states per layer, a phone check, and moving this section into Architecture.
 
 ## Ideas not built yet

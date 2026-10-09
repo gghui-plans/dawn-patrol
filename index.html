@@ -71,6 +71,11 @@ button{font:inherit;color:inherit}
 /* map view */
 .scene canvas#map{display:none;z-index:1;touch-action:none;cursor:grab}
 .scene.mapmode canvas#map{display:block}
+.scene canvas#mapwind{display:none;z-index:1;pointer-events:none} /* above the map (later in the DOM); touches go through to it */
+.scene.mapmode canvas#mapwind{display:block}
+.wlegend{position:absolute;z-index:4;right:12px;top:104px;width:112px}
+.wlegend .bar{height:5px;border-radius:3px;background:linear-gradient(90deg,#628abe 0%,#56c4d6 16.7%,#60d68c 33.3%,#ecd65a 50%,#f49646 66.7%,#e8505a 91.7%,#c85ac8 100%)}
+.wlegend .lab{display:flex;justify-content:space-between;margin-top:2px;font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.7)}
 .scene.mapmode #sky,.scene.mapmode .scrim,.scene.mapmode .gauge,.scene.mapmode .facing,.scene.mapmode .hint{display:none}
 .mapui{display:none}
 .scene.mapmode .mapui{display:block}
@@ -201,6 +206,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
   <section class="scene" id="scene" aria-label="Sky and water at the selected time">
     <canvas id="sky"></canvas>
     <canvas id="map" aria-label="Map around the saved location"></canvas>
+    <canvas id="mapwind" aria-hidden="true"></canvas>
     <div class="scrim"></div>
     <div class="viewtog" role="group" aria-label="View">
       <button type="button" data-view="sky" aria-pressed="true">Sky</button><button type="button" data-view="map" aria-pressed="false">Map</button>
@@ -208,7 +214,8 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
     <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
     <div class="attrib mapui">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
-    <div class="mapnote" id="mapnote" hidden>Map tiles didn’t load. Check your connection.</div>
+    <div class="wlegend mapui" aria-hidden="true"><div class="bar"></div><div class="lab"><span>0</span><span>20</span><span>40</span><span>60 km/h</span></div></div>
+    <div class="mapnote" id="mapnote" hidden></div>
     <div class="hud hud-time">
       <div class="clock" id="clock">6:55<small>am</small></div>
       <div class="phase" id="phase">Civil twilight</div>
@@ -925,7 +932,7 @@ function frame(ts){
   if(camAz==null)camAz=target;else{let dd=((target-camAz+3*Math.PI)%(2*Math.PI))-Math.PI;camAz+=dd*Math.min(1,dt*3.5)}
   camAzDeg=((camAz/DEG)%360+360)%360;
   hudTick(false);
-  if(mapOn){if(mapDirty)drawMap();return} // the sky pauses while the map is showing
+  if(mapOn){if(mapDirty)drawMap();windStep();return} // the sky pauses while the map is showing
   if(!gl) return;
   if(dt>0&&dt<1){warm+=dt;ema=ema*0.95+dt*0.05;
     if(warm>1.5){
@@ -1020,7 +1027,8 @@ function drawMap(){
   c.beginPath();c.arc(mx,my,10,0,7);c.fillStyle='rgba(244,162,89,.22)';c.fill();
   c.beginPath();c.arc(mx,my,4.5,0,7);c.fillStyle='#f4a259';c.fill();c.lineWidth=1.5;c.strokeStyle='#fff';c.stroke();
   $('#recentre').hidden=Math.hypot(mx-W/2,my-H/2)<24&&Math.abs(mapZ-MAP_Z0)<0.25;
-  $('#mapnote').hidden=!(tileErr>0&&tileOk===0);
+  wctx.setTransform(1,0,0,1,0,0);wctx.clearRect(0,0,windCv.width,windCv.height); // the map moved: drop old trails
+  windDrawnKey='';updateMapNote();scheduleWind();
 }
 function mapPan(dx,dy){const x=lon2x(mapC.lon,mapZ)-dx,y=clamp(lat2y(mapC.lat,mapZ)-dy,0,wpx(mapZ));mapC={lon:x2lon(x,mapZ),lat:y2lat(y,mapZ)};mapDirty=true}
 function mapZoomAt(px,py,dz){ // keep the point under the finger fixed
@@ -1039,8 +1047,82 @@ mapCv.addEventListener('pointermove',e=>{
 mapCv.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();const p=rel(e);mapZoomAt(p.x,p.y,-e.deltaY*0.01)},{passive:false}); // plain wheel still scrolls the page
 mapCv.addEventListener('dblclick',e=>{const p=rel(e);mapZoomAt(p.x,p.y,1)});
 $('#recentre').onclick=()=>{mapC={lat:loc.lat,lon:loc.lon};mapZ=MAP_Z0;mapDirty=true};
+/* ---------- map wind layer ----------
+   Wind for the visible area comes from one Open-Meteo request for a 7×7 grid of points (49 of the 10,000 free daily
+   points), covering the view plus a 25% margin. Grids are cached for an hour and reused while they still cover the view
+   and aren't too coarse for the zoom, so panning and zooming rarely refetch. Fetches wait until movement settles.
+   At the selected time, node winds are interpolated between forecast hours, then bilinearly across the grid.
+   Streaks: ~1 particle per 220 px², each drifting with the local wind (about 36 px/s at 20 km/h) and coloured by speed,
+   with trails that fade each frame. With reduced motion, static arrows are drawn instead. */
+const windCv=$('#mapwind'), wctx=windCv.getContext('2d'), WN=7;
+let wgrids=[], wgrid=null, wstate='idle', wTimer=null, parts=[], wvec=null, wvecKey='', windDrawnKey='';
+const WSTOPS=[[0,[98,138,190]],[10,[86,196,214]],[20,[96,214,140]],[30,[236,214,90]],[40,[244,150,70]],[55,[232,80,90]],[75,[200,90,200]]];
+const WCOLS=Array.from({length:41},(_,k)=>{const s=k*2;let i=1;while(i<WSTOPS.length-1&&s>WSTOPS[i][0])i++; // a colour per 2 km/h
+  const [s0,c0]=WSTOPS[i-1],[s1,c1]=WSTOPS[i],f=clamp((s-s0)/(s1-s0),0,1);return`rgb(${c0.map((v,j)=>Math.round(v+(c1[j]-v)*f))})`});
+const wcolIdx=s=>Math.min(40,Math.round(s/2));
+function viewBounds(){const W=mapCv.clientWidth,H=mapCv.clientHeight,cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);
+  return{n:y2lat(cy-H/2,mapZ),s:y2lat(cy+H/2,mapZ),w:x2lon(cx-W/2,mapZ),e:x2lon(cx+W/2,mapZ)}}
+const covers=(g,b)=>b.n<=g.n&&b.s>=g.s&&b.w>=g.w&&b.e<=g.e&&g.e-g.w<=(b.e-b.w)*3; // and not >3× coarser than the view
+function pickGrid(){const b=viewBounds(),now=Date.now();wgrids=wgrids.filter(g=>now-g.fetched<HOUR&&g.loc===loc);return wgrids.find(g=>covers(g,b))||null}
+function scheduleWind(){clearTimeout(wTimer);wTimer=setTimeout(ensureWind,600)}
+async function ensureWind(){
+  if(!mapOn||!mapC)return;const have=pickGrid();if(have){wgrid=have;return}
+  const b=viewBounds(),py=(b.n-b.s)*0.25,px=(b.e-b.w)*0.25,g={n:Math.min(b.n+py,85),s:Math.max(b.s-py,-85),w:b.w-px,e:b.e+px,loc};
+  const lats=[],lons=[];
+  for(let j=0;j<WN;j++)for(let i=0;i<WN;i++){lats.push((g.n-(g.n-g.s)*j/(WN-1)).toFixed(3));lons.push(((g.w+(g.e-g.w)*i/(WN-1)+540)%360-180).toFixed(3))}
+  wstate='loading';updateMapNote();
+  try{
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`);
+    if(!r.ok)throw new Error(r.status);let j=await r.json();if(!Array.isArray(j))j=[j];
+    Object.assign(g,{start:j[0].hourly.time[0]*1000,spd:j.map(p=>p.hourly.wind_speed_10m),dir:j.map(p=>p.hourly.wind_direction_10m),fetched:Date.now()});
+    wgrids.unshift(g);wgrids.length=Math.min(wgrids.length,6);wstate='ok';wgrid=pickGrid()||g;
+  }catch(e){wstate='failed'}
+  windDrawnKey='';updateMapNote();
+}
+function windNodes(){ // per-node wind at the selected time: {u: east, v: north, s: speed} toward which it blows
+  if(!wgrid)return null;const key=`${selT}|${wgrid.fetched}`;if(key===wvecKey)return wvec;wvecKey=key;
+  const x=(selT-wgrid.start)/HOUR,n=wgrid.spd[0].length;if(x<0||x>n-1)return wvec=null;
+  const i=Math.floor(x),f=x-i,k=Math.min(i+1,n-1);
+  return wvec=wgrid.spd.map((s,p)=>{const d1=wgrid.dir[p][i],d2=wgrid.dir[p][k];if(s[i]==null||s[k]==null||d1==null||d2==null)return null;
+    const sp=s[i]+(s[k]-s[i])*f,d=(d1+(((d2-d1+540)%360)-180)*f)*DEG;return{u:-sp*Math.sin(d),v:-sp*Math.cos(d),s:sp}});
+}
+function windAtPx(px,py,nodes,W,H,cx,cy){
+  const lon=x2lon(cx+px-W/2,mapZ),lat=y2lat(cy+py-H/2,mapZ);
+  const fx=(lon-wgrid.w)/(wgrid.e-wgrid.w)*(WN-1),fy=(wgrid.n-lat)/(wgrid.n-wgrid.s)*(WN-1);
+  if(fx<0||fy<0||fx>WN-1||fy>WN-1)return null;
+  const i=Math.min(Math.floor(fx),WN-2),j=Math.min(Math.floor(fy),WN-2),a=fx-i,b=fy-j;
+  const q0=nodes[j*WN+i],q1=nodes[j*WN+i+1],q2=nodes[(j+1)*WN+i],q3=nodes[(j+1)*WN+i+1];if(!q0||!q1||!q2||!q3)return null;
+  const L=k=>(q0[k]*(1-a)+q1[k]*a)*(1-b)+(q2[k]*(1-a)+q3[k]*a)*b;return{u:L('u'),v:L('v'),s:L('s')};
+}
+const spawn=(p,W,H)=>{p.x=Math.random()*W;p.y=Math.random()*H;p.age=0;p.max=40+Math.random()*70;return p};
+function windStep(){
+  const W=windCv.clientWidth,H=windCv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
+  if(windCv.width!==Math.round(W*dpr)||windCv.height!==Math.round(H*dpr)){windCv.width=Math.round(W*dpr);windCv.height=Math.round(H*dpr);parts=[];windDrawnKey=''}
+  const c=wctx,nodes=windNodes(),cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);c.setTransform(dpr,0,0,dpr,0,0);
+  if(reduce){ // static arrows, redrawn only when something changes
+    const key=`${wvecKey}|${cx}|${cy}|${mapZ}|${W}x${H}`;if(key===windDrawnKey)return;windDrawnKey=key;c.clearRect(0,0,W,H);if(!nodes)return;
+    c.lineWidth=1.5;for(let y=24;y<H;y+=44)for(let x=24;x<W;x+=44){const w=windAtPx(x,y,nodes,W,H,cx,cy);if(!w||w.s<0.5)continue;
+      const L=8+Math.min(w.s,50)*0.3,ux=w.u/w.s,uy=-w.v/w.s,tx=x+ux*L/2,ty=y+uy*L/2;c.strokeStyle=WCOLS[wcolIdx(w.s)];c.beginPath();
+      c.moveTo(x-ux*L/2,y-uy*L/2);c.lineTo(tx,ty);c.moveTo(tx,ty);c.lineTo(tx-ux*5-uy*3.5,ty-uy*5+ux*3.5);c.moveTo(tx,ty);c.lineTo(tx-ux*5+uy*3.5,ty-uy*5-ux*3.5);c.stroke()}
+    return}
+  c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,0.085)';c.fillRect(0,0,W,H);c.globalCompositeOperation='source-over'; // fade trails
+  if(!nodes)return;
+  const want=Math.min(1200,Math.round(W*H/220));while(parts.length<want)parts.push(spawn({},W,H));parts.length=want;
+  const paths=new Map();c.lineWidth=1.25;c.lineCap='round';
+  for(const p of parts){
+    const w=p.age++<p.max&&windAtPx(p.x,p.y,nodes,W,H,cx,cy);if(!w){spawn(p,W,H);continue}
+    const nx=p.x+w.u*0.06,ny=p.y-w.v*0.06,ci=wcolIdx(w.s);let path=paths.get(ci);if(!path)paths.set(ci,path=new Path2D());
+    path.moveTo(p.x,p.y);path.lineTo(nx,ny);p.x=nx;p.y=ny;if(nx<0||ny<0||nx>W||ny>H)spawn(p,W,H);
+  }
+  paths.forEach((path,ci)=>{c.strokeStyle=WCOLS[ci];c.stroke(path)}); // one stroke per colour band
+}
+function updateMapNote(){
+  const t=tileErr>0&&tileOk===0?'Map tiles didn’t load. Check your connection.':!wgrid&&wstate==='failed'?'The wind map didn’t load.'
+    :!wgrid&&wstate==='loading'?'Loading wind…':wgrid&&!windNodes()?'No wind forecast for this time.':'';
+  const m=$('#mapnote');m.textContent=t;m.hidden=!t;
+}
 function setView(v){
-  mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;
+  mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;if(mapOn)setTimeout(ensureWind,0);
   document.querySelectorAll('.viewtog button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));
   document.querySelectorAll('.dots i').forEach((d,k)=>d.classList.toggle('on',k===(mapOn?1:0)));
 }
