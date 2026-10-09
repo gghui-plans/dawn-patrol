@@ -61,14 +61,33 @@ button{font:inherit;color:inherit}
 .scene canvas.mini{inset:auto;left:12px;bottom:6px;width:calc(100% - 24px);height:24px;z-index:3;touch-action:none}
 .hint{position:absolute;z-index:3;left:50%;top:46%;transform:translateX(-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.55);color:#fff;white-space:nowrap;pointer-events:none;transition:opacity .5s}
 .hint.gone{opacity:0}
+/* Sky | Map toggle (top centre; the HUD and gauge start below it) */
+.viewtog{position:absolute;z-index:4;top:10px;left:50%;transform:translateX(-50%);display:flex;padding:2px;border-radius:999px;background:rgba(3,6,14,.55);border:1px solid rgba(255,255,255,.18);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.viewtog button{border:0;background:transparent;color:#fff;font-size:12.5px;padding:5px 16px;border-radius:999px;cursor:pointer;opacity:.75}
+.viewtog button[aria-pressed="true"]{background:rgba(255,255,255,.2);opacity:1;font-weight:600}
+.dots{position:absolute;z-index:4;top:42px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
+.dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.35)}
+.dots i.on{background:#fff}
+/* map view */
+.scene canvas#map{display:none;z-index:1;touch-action:none;cursor:grab}
+.scene.mapmode canvas#map{display:block}
+.scene.mapmode #sky,.scene.mapmode .scrim,.scene.mapmode .gauge,.scene.mapmode .facing,.scene.mapmode .hint{display:none}
+.mapui{display:none}
+.scene.mapmode .mapui{display:block}
+.mapbtn{position:absolute;z-index:4;right:12px;bottom:48px;border:1px solid rgba(255,255,255,.25);background:rgba(3,6,14,.7);color:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}
+.scene:not(.mapmode) .mapbtn{display:none}
+.attrib{position:absolute;z-index:4;right:12px;top:56px;max-width:112px;text-align:right;line-height:1.3;font-size:9.5px;color:rgba(255,255,255,.6)} /* where the sun gauge sits in sky view */
+.attrib a{color:inherit}
+.mapnote{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.7);color:#fff;white-space:nowrap}
+.scene:not(.mapmode) .mapnote{display:none}
 .scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(3,6,14,.42),rgba(3,6,14,0) 30%,rgba(3,6,14,0) 62%,rgba(3,6,14,.55));z-index:1}
 .hud{position:absolute;z-index:2;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.45)}
-.hud-time{top:14px;left:16px;right:96px}
+.hud-time{top:52px;left:16px;right:96px}
 .clock{font-family:var(--display);font-stretch:62%;font-weight:700;font-size:clamp(46px,12vw,68px);line-height:.9;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .clock small{font-size:.36em;font-weight:600;letter-spacing:.04em;margin-left:4px}
 .phase{margin-top:8px;font-family:var(--display);font-stretch:85%;font-weight:600;font-size:17px}
 .alt{font-family:var(--mono);font-size:12px;opacity:.85;margin-top:2px}
-.gauge{top:18px;right:14px;width:82px;height:184px}
+.gauge{top:56px;right:14px;width:82px;height:184px}
 .gauge .rail{position:absolute;right:8px;top:0;bottom:0;width:2px;background:linear-gradient(#ffffff55,#ffffff22)}
 .gauge .tick{position:absolute;right:4px;display:flex;align-items:center;gap:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;line-height:1;white-space:nowrap;color:#ffffffcc}
 .gauge .tick::after{content:"";width:10px;height:1px;background:#ffffffaa}
@@ -181,7 +200,15 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
 
   <section class="scene" id="scene" aria-label="Sky and water at the selected time">
     <canvas id="sky"></canvas>
+    <canvas id="map" aria-label="Map around the saved location"></canvas>
     <div class="scrim"></div>
+    <div class="viewtog" role="group" aria-label="View">
+      <button type="button" data-view="sky" aria-pressed="true">Sky</button><button type="button" data-view="map" aria-pressed="false">Map</button>
+    </div>
+    <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
+    <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
+    <div class="attrib mapui">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
+    <div class="mapnote" id="mapnote" hidden>Map tiles didn’t load. Check your connection.</div>
     <div class="hud hud-time">
       <div class="clock" id="clock">6:55<small>am</small></div>
       <div class="phase" id="phase">Civil twilight</div>
@@ -621,21 +648,21 @@ function dismissHint(){store.set('dp.scrubHint',true);if(hint.hidden)return;hint
 if(!store.get('dp.scrubHint',false)){hint.hidden=false;setTimeout(()=>{hint.classList.add('gone');setTimeout(()=>hint.hidden=true,500)},6000)}
 let miniDrag=false;
 const tFromMini=e=>{const r=mini.getBoundingClientRect(),d0=dayStart(dayIdx);return d0+clamp((e.clientX-r.left)/r.width,0,0.9993)*(dayStart(dayIdx+1)-d0)};
-mini.addEventListener('pointerdown',e=>{miniDrag=true;mini.setPointerCapture(e.pointerId);setTime(tFromMini(e));dismissHint()});
+mini.addEventListener('pointerdown',e=>{miniDrag=true;try{mini.setPointerCapture(e.pointerId)}catch(_){}setTime(tFromMini(e));dismissHint()});
 mini.addEventListener('pointermove',e=>{if(miniDrag)setTime(tFromMini(e))});
 ['pointerup','pointercancel'].forEach(n=>mini.addEventListener(n,()=>miniDrag=false));
 const scene=$('#scene');let sx=null,sy=0,st=0,scrub=false,spid=null;
-scene.addEventListener('pointerdown',e=>{if(e.target===mini||e.button>0)return;sx=e.clientX;sy=e.clientY;st=selT;scrub=false;spid=e.pointerId});
+scene.addEventListener('pointerdown',e=>{if(mapOn/* the map has its own drag */||e.target===mini||e.target.closest('button,a')||e.button>0)return;sx=e.clientX;sy=e.clientY;st=selT;scrub=false;spid=e.pointerId});
 scene.addEventListener('pointermove',e=>{
   if(sx==null||e.pointerId!==spid)return;const dx=e.clientX-sx,dy=e.clientY-sy;
-  if(!scrub){if(Math.abs(dx)<8||Math.abs(dx)<Math.abs(dy))return;scrub=true;scene.setPointerCapture(spid);dismissHint()}
+  if(!scrub){if(Math.abs(dx)<8||Math.abs(dx)<Math.abs(dy))return;scrub=true;try{scene.setPointerCapture(spid)}catch(_){}dismissHint()}
   setTime(st+dx/scene.clientWidth*6*HOUR)});
 ['pointerup','pointercancel'].forEach(n=>scene.addEventListener(n,()=>{sx=null;scrub=false}));
 function setTime(t){follow=false;selT=clamp(t,dayStart(dayIdx),dayStart(dayIdx+1)-MIN);syncNow();drawTL();hudTick(true)}
 function syncNow(){const b=$('#nowbtn');b.setAttribute('aria-pressed',follow);b.textContent=follow?'Following now':'Jump to now'}
 let dragging=false;
 const tFromX=e=>{const r=tl.getBoundingClientRect(),d0=dayStart(dayIdx);return d0+clamp((e.clientX-r.left)/r.width,0,0.9993)*(dayStart(dayIdx+1)-d0)};
-tl.addEventListener('pointerdown',e=>{dragging=true;tl.setPointerCapture(e.pointerId);setTime(tFromX(e))});
+tl.addEventListener('pointerdown',e=>{dragging=true;try{tl.setPointerCapture(e.pointerId)}catch(_){}setTime(tFromX(e))});
 tl.addEventListener('pointermove',e=>{if(dragging)setTime(tFromX(e))});
 ['pointerup','pointercancel'].forEach(n=>tl.addEventListener(n,()=>dragging=false));
 $('#tlwrap').addEventListener('keydown',e=>{const st=e.shiftKey?HOUR:10*MIN;if(e.key==='ArrowRight'){setTime(selT+st);e.preventDefault()}if(e.key==='ArrowLeft'){setTime(selT-st);e.preventDefault()}});
@@ -898,6 +925,7 @@ function frame(ts){
   if(camAz==null)camAz=target;else{let dd=((target-camAz+3*Math.PI)%(2*Math.PI))-Math.PI;camAz+=dd*Math.min(1,dt*3.5)}
   camAzDeg=((camAz/DEG)%360+360)%360;
   hudTick(false);
+  if(mapOn){if(mapDirty)drawMap();return} // the sky pauses while the map is showing
   if(!gl) return;
   if(dt>0&&dt<1){warm+=dt;ema=ema*0.95+dt*0.05;
     if(warm>1.5){
@@ -942,6 +970,81 @@ function frame(ts){
   gl.uniform2f(U.uWindVec,Math.sin(trav),Math.cos(trav));
   gl.drawArrays(gl.TRIANGLES,0,3);
 }
+
+/* ---------- map view ----------
+   A small hand-rolled slippy map (Web Mercator, 256 px tiles) of Esri's World Dark Gray Canvas: a base layer plus a
+   transparent label layer, composited into one canvas per tile. It's the one allowed external load besides Google Fonts.
+   (CARTO, the first choice, now watermarks keyless tiles.) Esri works without a key for personal, non-commercial use;
+   commercial use needs an ArcGIS account and key. To change provider, edit BASEMAP and the .attrib credit.
+   Zoom is continuous: tiles come from the nearest integer level, scaled. While a tile loads, its parent stands in.
+   Drawn only when something changes (pan, zoom, a tile arriving); the WebGL sky pauses meanwhile.
+   One finger pans, two fingers pinch-zoom; ctrl+wheel (and trackpad pinch) or double-click zooms on desktop. */
+const BASEMAP={layers:['World_Dark_Gray_Base','World_Dark_Gray_Reference'],
+  url:(lyr,z,x,y)=>`https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/${lyr}/MapServer/tile/${z}/${y}/${x}`};
+const mapCv=$('#map'), mapCtx=mapCv.getContext('2d'), TILE=256, MAP_Z0=9.4, MAP_ZMIN=5, MAP_ZMAX=13; // 9.4 ≈ 60 km across a phone
+let mapOn=false, mapC=null, mapZ=MAP_Z0, mapDirty=true, tileOk=0, tileErr=0;
+const tiles=new Map();
+const wpx=z=>TILE*2**z;
+const lon2x=(lon,z)=>(lon+180)/360*wpx(z), x2lon=(x,z)=>x/wpx(z)*360-180;
+const lat2y=(lat,z)=>{const s=Math.sin(clamp(lat,-85,85)*DEG);return(0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*wpx(z)};
+const y2lat=(y,z)=>Math.atan(Math.sinh(Math.PI-2*Math.PI*y/wpx(z)))/DEG;
+function tileAt(z,x,y,load){
+  const n=2**z;x=((x%n)+n)%n;if(y<0||y>=n)return null;
+  const k=`${z}/${x}/${y}`;let t=tiles.get(k);
+  if(!t&&load){
+    const cv=document.createElement('canvas');cv.width=cv.height=TILE;t={img:cv,ok:false};
+    const imgs=BASEMAP.layers.map(l=>{const im=new Image();im.src=BASEMAP.url(l,z,x,y);return im});
+    let left=imgs.length,baseOk=false;
+    const settle=()=>{if(--left)return;if(!baseOk){tileErr++;mapDirty=true;return} // labels may fail; the base must not
+      const g=cv.getContext('2d');imgs.forEach(im=>{if(im.complete&&im.naturalWidth)g.drawImage(im,0,0,TILE,TILE)});t.ok=true;tileOk++;mapDirty=true};
+    imgs.forEach((im,i)=>{im.onload=()=>{if(!i)baseOk=true;settle()};im.onerror=settle});
+    tiles.set(k,t);if(tiles.size>300)tiles.delete(tiles.keys().next().value); // keep memory bounded
+  }
+  return t;
+}
+function drawMap(){
+  mapDirty=false;const W=mapCv.clientWidth,H=mapCv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
+  if(mapCv.width!==Math.round(W*dpr)||mapCv.height!==Math.round(H*dpr)){mapCv.width=Math.round(W*dpr);mapCv.height=Math.round(H*dpr)}
+  if(!mapC)mapC={lat:loc.lat,lon:loc.lon};
+  const c=mapCtx;c.setTransform(dpr,0,0,dpr,0,0);c.fillStyle='#0e1117';c.fillRect(0,0,W,H);
+  const tz=clamp(Math.round(mapZ),0,18),s=2**(mapZ-tz),ts=TILE*s;
+  const x0=lon2x(mapC.lon,tz)-W/2/s,y0=lat2y(mapC.lat,tz)-H/2/s;               // top-left corner, in level-tz pixels
+  for(let ty=Math.floor(y0/TILE);ty<=Math.floor((y0+H/s)/TILE);ty++)
+    for(let tx=Math.floor(x0/TILE);tx<=Math.floor((x0+W/s)/TILE);tx++){
+      const px=(tx*TILE-x0)*s,py=(ty*TILE-y0)*s,t=tileAt(tz,tx,ty,true);
+      if(t&&t.ok){c.drawImage(t.img,px,py,ts+0.5,ts+0.5);continue}
+      const p=tz>0&&tileAt(tz-1,tx>>1,ty>>1,false);                             // parent stands in while loading
+      if(p&&p.ok){const q=p.img.width/2;c.drawImage(p.img,(tx&1)*q,(ty&1)*q,q,q,px,py,ts+0.5,ts+0.5)}
+    }
+  const mx=(lon2x(loc.lon,tz)-x0)*s,my=(lat2y(loc.lat,tz)-y0)*s;                 // the saved location
+  c.beginPath();c.arc(mx,my,10,0,7);c.fillStyle='rgba(244,162,89,.22)';c.fill();
+  c.beginPath();c.arc(mx,my,4.5,0,7);c.fillStyle='#f4a259';c.fill();c.lineWidth=1.5;c.strokeStyle='#fff';c.stroke();
+  $('#recentre').hidden=Math.hypot(mx-W/2,my-H/2)<24&&Math.abs(mapZ-MAP_Z0)<0.25;
+  $('#mapnote').hidden=!(tileErr>0&&tileOk===0);
+}
+function mapPan(dx,dy){const x=lon2x(mapC.lon,mapZ)-dx,y=clamp(lat2y(mapC.lat,mapZ)-dy,0,wpx(mapZ));mapC={lon:x2lon(x,mapZ),lat:y2lat(y,mapZ)};mapDirty=true}
+function mapZoomAt(px,py,dz){ // keep the point under the finger fixed
+  const W=mapCv.clientWidth,H=mapCv.clientHeight,z1=clamp(mapZ+dz,MAP_ZMIN,MAP_ZMAX),k=2**(z1-mapZ);
+  const wx=lon2x(mapC.lon,mapZ)+(px-W/2),wy=lat2y(mapC.lat,mapZ)+(py-H/2);
+  mapZ=z1;mapC={lon:x2lon(wx*k-(px-W/2),mapZ),lat:y2lat(clamp(wy*k-(py-H/2),0,wpx(mapZ)),mapZ)};mapDirty=true}
+const mptr=new Map();let pinch=null;
+const rel=e=>{const r=mapCv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
+const pinchOf=()=>{const [a,b]=[...mptr.values()];return{d:Math.hypot(a.x-b.x,a.y-b.y)||1,x:(a.x+b.x)/2,y:(a.y+b.y)/2}};
+mapCv.addEventListener('pointerdown',e=>{try{mapCv.setPointerCapture(e.pointerId)}catch(_){}mptr.set(e.pointerId,rel(e));if(mptr.size===2)pinch=pinchOf();mapCv.style.cursor='grabbing'});
+mapCv.addEventListener('pointermove',e=>{
+  const p=mptr.get(e.pointerId);if(!p)return;const q=rel(e);
+  if(mptr.size===1){mapPan(q.x-p.x,q.y-p.y);mptr.set(e.pointerId,q);return}
+  mptr.set(e.pointerId,q);const n=pinchOf();mapZoomAt(n.x,n.y,Math.log2(n.d/pinch.d));mapPan(n.x-pinch.x,n.y-pinch.y);pinch=n});
+['pointerup','pointercancel'].forEach(t=>mapCv.addEventListener(t,e=>{mptr.delete(e.pointerId);pinch=mptr.size===2?pinchOf():null;if(!mptr.size)mapCv.style.cursor=''}));
+mapCv.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();const p=rel(e);mapZoomAt(p.x,p.y,-e.deltaY*0.01)},{passive:false}); // plain wheel still scrolls the page
+mapCv.addEventListener('dblclick',e=>{const p=rel(e);mapZoomAt(p.x,p.y,1)});
+$('#recentre').onclick=()=>{mapC={lat:loc.lat,lon:loc.lon};mapZ=MAP_Z0;mapDirty=true};
+function setView(v){
+  mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;
+  document.querySelectorAll('.viewtog button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));
+  document.querySelectorAll('.dots i').forEach((d,k)=>d.classList.toggle('on',k===(mapOn?1:0)));
+}
+document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 
 /* ---------- settings ---------- */
 function renderLoc(){
@@ -990,7 +1093,7 @@ window.addEventListener('online',()=>maybeRefresh(true));
 setInterval(()=>{checkDay();maybeRefresh(false)},MIN);
 function applyLoc(nl){
   if(nl.lat===loc.lat&&nl.lon===loc.lon&&loc.tz) nl.tz=loc.tz; // same spot renamed: keep its time zone
-  loc=nl;store.set('dp.loc',loc);data=null;marine=null;loadData();renderData();relayout()}
+  loc=nl;store.set('dp.loc',loc);data=null;marine=null;mapC=null;mapDirty=true;loadData();renderData();relayout()}
 $('#lsave').onclick=()=>{const lat=parseFloat($('#llat').value),lon=parseFloat($('#llon').value);
   if(!(lat>=-90&&lat<=90&&lon>=-180&&lon<=180)){$('#lmsg').textContent='Enter latitude between −90 and 90 and longitude between −180 and 180.';return}
   applyLoc({name:$('#lname').value.trim()||'My spot',lat,lon});$('#lmsg').textContent='Saved.'};
@@ -1012,7 +1115,7 @@ document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>setMode(b.dataset.mo
 renderLoc();renderLim();renderTabs();
 renderData();renderVerdict();renderAlmanac();
 if(!initGL()){const n=document.createElement('div');n.className='nogl';n.textContent='The sky view needs WebGL, which this browser has turned off. Everything else still works.';$('#scene').prepend(n)}
-resize();new ResizeObserver(()=>{resize();drawTL()}).observe($('#scene'));
+resize();new ResizeObserver(()=>{resize();drawTL();mapDirty=true}).observe($('#scene'));
 window.addEventListener('resize',drawTL);
 drawTL();hudTick(true);syncNow();requestAnimationFrame(frame);
 loadData();

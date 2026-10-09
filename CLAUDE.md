@@ -16,7 +16,13 @@ It is a personal project. The owner opens it from a home-screen icon to check th
 ## Architecture
 
 - **One file, no build step.** `index.html` holds all HTML, CSS and JavaScript. Keep it that way unless a change clearly needs more. It is opened directly in a browser and hosted as static files.
-- **No frameworks or npm dependencies.** Google Fonts (Archivo, JetBrains Mono) is the only external load.
+- **No frameworks or npm dependencies.** Google Fonts (Archivo, JetBrains Mono) and the Esri map tiles are the only external loads, apart from the Open-Meteo data.
+- **Map view** (the Sky | Map toggle at the top of the scene) is a small hand-written tile map of Esri's World Dark Gray Canvas: a base layer plus a label layer, combined per tile. There's no library.
+  - **Gestures:** one finger pans and two fingers pinch-zoom. On desktop, ctrl+scroll (or trackpad pinch) and double-click zoom.
+  - **Controls:** a Recentre button appears once you've moved away. The time strip works in both views.
+  - **Drawing:** the map redraws only when something changes, and the WebGL sky pauses while it shows.
+  - **Tile provider:** Esri works without a key for personal, non-commercial use, and the credit line ("Esri, HERE, Garmin, © OpenStreetMap contributors") must stay. CARTO, the first choice, now watermarks keyless tiles. Stadia (free account, domain registered) is the next fallback. Change the provider in `BASEMAP` and the `.attrib` credit.
+  - **Commercial use** would need an ArcGIS account and key (or Stadia Starter), plus a paid Open-Meteo plan, hosting other than GitHub Pages, and removing `previewData()`.
 - **Sky renderer.** A WebGL1 fragment shader draws the scene.
   - Physically based single-scattering atmosphere: Rayleigh and Mie scattering, with an Earth-shadow test so the sky darkens correctly as the sun drops below the horizon.
   - Added on top: a twilight "fill" term and a horizon glow toward the sun, because single scattering alone makes twilight too dark.
@@ -96,7 +102,7 @@ Static files only. GitHub Pages, Netlify or the owner's own website all work. It
 A Windy-style map as a second view in the top scene, wave data, and two usage modes. The owner agreed the plan on 2026-10-09 and is building it step by step.
 
 **Decisions:**
-1. **Map tiles:** CARTO "Dark Matter" raster tiles, with no key or account. This is the one allowed exception to "Google Fonts is the only external load." Credit: © OpenStreetMap contributors © CARTO. If tiles fail, draw the layers on plain dark with a note.
+1. **Map tiles:** Esri World Dark Gray Canvas, with no key. This was changed from CARTO after CARTO turned out to need a key. If tiles fail, draw the layers on plain dark with a note.
 2. **Switching:** a **Sky | Map** toggle with page dots at the top centre of the scene. Swiping isn't used, because a horizontal drag on the sky already scrubs time and the map needs drag to pan. The bottom time strip works in both views.
 3. **Waves never change the Calm / Manageable / Rough rating.** They appear in the verdict text and on the timeline.
 4. **Two modes**, "On the water" and "On land," built as part of this feature:
@@ -114,7 +120,7 @@ A Windy-style map as a second view in the top scene, wave data, and two usage mo
 **Build order:**
 1. ~~Wave data at the spot: HUD readout, verdict sentence, timeline line, honest no-data states.~~ Done.
 2. ~~Two modes, with land at 35 / 50 km/h (the owner's choice).~~ Done.
-3. Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.
+3. ~~Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.~~ Done.
 4. Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.
 5. Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.
 6. Polish: loading and failure states per layer, a phone check, and moving this section into Architecture.
