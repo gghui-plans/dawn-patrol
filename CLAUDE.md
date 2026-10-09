@@ -45,12 +45,16 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - **Direction:** given as "from," like wind.
   - **No preview fallback:** without live data, no wave numbers are shown.
   - **Display only:** waves appear in the scene HUD (swell only from 0.2 m), in the verdict sentence and as a line on the timeline. They never change the rating, because the forecast describes open water a few km out, not the shoreline.
-- **Settings** (location, gust limits, city glow) are saved in `localStorage`. "Use my location" calls the browser's geolocation, which needs HTTPS.
+- **Settings** (location, mode, each mode's gust limits, city glow) are saved in `localStorage`. Note that the desktop app's file preview blocks `localStorage`, so test persistence over a local web server. "Use my location" calls the browser's geolocation, which needs HTTPS.
 
 ## Verdict rules
 
-- **Calm:** gusts at or below the calm limit (default 25 km/h) and sustained wind at or below about 60% of it.
-- **Rough:** gusts above the rough limit (default 35 km/h) or sustained wind above about 62% of it.
+- **Two modes**, "On the water" and "On land," switched with the pills above the day tabs.
+  - Each mode keeps its own limits: water defaults to 25 / 35 km/h, land to 35 / 50 km/h. Older single limits (`dp.lim`) became the water mode's.
+  - Land mode hides all wave information.
+  - Keep mode names generic: no activity names.
+- **Calm:** gusts at or below the calm limit and sustained wind at or below about 60% of it.
+- **Rough:** gusts above the rough limit or sustained wind above about 62% of it.
 - **Manageable:** anything in between.
 - **Rain:** a precipitation chance of 50% or more downgrades Calm to Manageable.
 - **Daylight only:** only civil daylight counts (civil dawn to civil dusk). For today, counting starts from now.
@@ -109,7 +113,7 @@ A Windy-style map as a second view in the top scene, wave data, and two usage mo
 
 **Build order:**
 1. ~~Wave data at the spot: HUD readout, verdict sentence, timeline line, honest no-data states.~~ Done.
-2. Two modes.
+2. ~~Two modes, with land at 35 / 50 km/h (the owner's choice).~~ Done.
 3. Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.
 4. Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.
 5. Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.

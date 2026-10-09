@@ -89,6 +89,9 @@ button{font:inherit;color:inherit}
 
 /* panels */
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.modes{display:flex;gap:6px;margin-bottom:12px}
+.mode{flex:1;min-width:0;border:1px solid var(--line);background:transparent;border-radius:999px;padding:6px 10px;font-size:13px;cursor:pointer;color:var(--dim)}
+.mode[aria-pressed="true"]{background:var(--panel-2);border-color:#3a4c75;color:var(--fg);font-weight:600}
 .tabs{display:flex;gap:6px;margin-bottom:14px}
 .tab{flex:1;min-width:0;border:1px solid var(--line);background:transparent;border-radius:10px;padding:8px 6px;cursor:pointer;text-align:center;line-height:1.15}
 .tab span{display:block;font-family:var(--display);font-stretch:80%;font-weight:700;font-size:15px}
@@ -210,6 +213,10 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
   </section>
 
   <section class="panel" aria-labelledby="vh">
+    <div class="modes" role="group" aria-label="Mode">
+      <button type="button" class="mode" data-mode="water" aria-pressed="true">On the water</button>
+      <button type="button" class="mode" data-mode="land" aria-pressed="false">On land</button>
+    </div>
     <div class="tabs" role="tablist" id="tabs"></div>
     <div class="verdict" id="verdict">
       <div class="vrow"><span class="pill over" id="vpill">LOADING</span><span class="vwin" id="vwin"></span></div>
@@ -267,8 +274,9 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
         <span class="msg" id="lmsg" role="status"></span>
       </div>
       <div class="fr">
-        <label class="f">Calm: gusts up to <output id="ogood">25 km/h</output><input type="range" id="rgood" min="10" max="40" step="1"></label>
-        <label class="f">Rough: gusts above <output id="orough">35 km/h</output><input type="range" id="rrough" min="15" max="60" step="1"></label>
+        <p class="msg" style="grid-column:1/-1;margin:0">Wind limits for <b id="limmode" style="color:var(--fg)">On the water</b>. Each mode keeps its own; switch modes above the day tabs.</p>
+        <label class="f">Calm: gusts up to <output id="ogood">25 km/h</output><input type="range" id="rgood" min="10" max="50" step="1"></label>
+        <label class="f">Rough: gusts above <output id="orough">35 km/h</output><input type="range" id="rrough" min="15" max="70" step="1"></label>
       </div>
       <label class="f chk"><input type="checkbox" id="cglow">City glow on the night horizon. Turn it off for a dark spot away from city lights.</label>
       <p class="msg">Sustained wind limits follow the gust limits at about 60 percent (25 km/h gusts means roughly 15 km/h steady). Set them to whatever counts as calm and rough for you. Windows only count civil daylight, dawn to dusk. A rain chance of 50 percent or more downgrades a calm hour to manageable.</p>
@@ -349,7 +357,11 @@ const compassAz=a=>((a/DEG+180)%360+360)%360; // SunCalc azimuth is from south, 
 const DEFAULT_LOC={name:'Toronto',lat:43.65,lon:-79.38,tz:'America/Toronto'};
 let loc=store.get('dp.loc',DEFAULT_LOC);
 if(loc.tz&&!okTz(loc.tz)) delete loc.tz;
-let LIM=store.get('dp.lim',{good:25,rough:35});
+// Two modes, each with its own wind limits. "On land" hides wave information. Older single limits become the water mode's.
+const LIMS=store.get('dp.lims',null)||{water:store.get('dp.lim',{good:25,rough:35}),land:{good:35,rough:50}};
+let MODE=store.get('dp.mode','water'); if(!LIMS[MODE]) MODE='water';
+let LIM=LIMS[MODE];
+const wavesOn=()=>MODE==='water';
 let GLOW=store.get('dp.glow',true); // city glow on the night horizon
 let data=null, loading=true, dayIdx=0, follow=true, selT=Date.now();
 const dayStart=i=>{const w=wall(Date.now());return zoned(w.y,w.mo,w.d+i)}; // local midnight at the location
@@ -477,7 +489,8 @@ function renderVerdict(){
   else {head='No wind forecast for this day.';sub=data&&!data.live?'The live forecast didn’t load, and the preview estimate only covers Oct 9 to 11, 2026.':'';}
   if(v.win&&v.ws.rain) sub+=' Rain is likely during the window.';
   // waves are mentioned, never rated: the forecast describes open water a few km out, not the shoreline
-  if(v.win){const ws=waveStats(v.win.a,v.win.b),after=waveStats(v.win.b,v.dusk);
+  if(!wavesOn()){/* land mode: no wave talk */}
+  else if(v.win){const ws=waveStats(v.win.a,v.win.b),after=waveStats(v.win.b,v.dusk);
     if(ws){sub+=` Waves around ${m1(ws.avg)}`;if(after&&after.max.h>=ws.avg+0.2)sub+=`, building to ${m1(after.max.h)} around ${fmt(new Date(after.max.t))}`;sub+='.'}}
   else if(v.kind==='nogo'){const s=waveStats(v.from,v.dusk);if(s)sub+=` Waves up to ${m1(s.max.h)}.`}
   $('#vh').textContent=head; $('#vwin').innerHTML=winLine; $('#vsub').textContent=sub;
@@ -569,7 +582,7 @@ function drawTL(){
     c.fillStyle=`rgba(233,238,246,${day?.9:.35})`;c.fillRect(x-1,Math.round(Y(w.gust))-1,bw+2,2)}
   // wave height: a thin line on its own scale (right-hand label), drawn every half hour
   const wv=[];let maxW=0;for(let k=0;k<=nH*2;k++){const w=waveAt(d0+k*30*MIN);wv.push(w?w.h:null);if(w)maxW=Math.max(maxW,w.h)}
-  if(wv.some(h=>h!=null)){const top=Math.max(1,Math.ceil(maxW*2)/2),WY=h=>cy1-h/top*(cy1-cy0);
+  if(wavesOn()&&wv.some(h=>h!=null)){const top=Math.max(1,Math.ceil(maxW*2)/2),WY=h=>cy1-h/top*(cy1-cy0);
     c.strokeStyle='rgba(127,211,230,.9)';c.lineWidth=1.5;c.beginPath();let pen=false;
     wv.forEach((h,k)=>{if(h==null){pen=false;return}const x=X(d0+k*30*MIN),y=WY(h);pen?c.lineTo(x,y):c.moveTo(x,y);pen=true});c.stroke();
     c.fillStyle='rgba(127,211,230,.95)';c.textAlign='right';c.fillText(`${top} m`,W-4,cy0+8)}
@@ -644,7 +657,7 @@ function hudTick(force){
   $('#cloudl').textContent=cc?`Cloud ${cc.total==null?'—':pc(cc.total)+'%'} · low ${pc(cc.low)} mid ${pc(cc.mid)} high ${pc(cc.high)}`
     :!data?'':data.live?'Cloud: no forecast':'Cloud: no data in preview';
   const wa=waveAt(selT);
-  $('#wavel').textContent=wa?`Waves ${m1(wa.h)}${wa.per?` · ${Math.round(wa.per)} s`:''}${wa.dir!=null?` · from ${card(wa.dir)}`:''}${wa.sw>=0.2?` · swell ${m1(wa.sw)}`:''}`
+  $('#wavel').textContent=!wavesOn()?'':wa?`Waves ${m1(wa.h)}${wa.per?` · ${Math.round(wa.per)} s`:''}${wa.dir!=null?` · from ${card(wa.dir)}`:''}${wa.sw>=0.2?` · swell ${m1(wa.sw)}`:''}`
     :!marine?'':marine.none==='far'?'Waves: no forecast near here':marine.none==='failed'?'Waves: didn’t load':'Waves: no forecast';
   const g=$('#gdot');g.style.top=clamp((30-a)/54*100,0,100)+'%';g.classList.toggle('below',a<0);
   $('.scrim').style.opacity=(0.45+0.55*sstep(-14,-4,a)).toFixed(2); // a dark sky doesn't need the full scrim behind the text
@@ -942,9 +955,9 @@ function renderData(){const chip=$('#datachip'),note=$('#datanote');
     note.innerHTML=`Hourly forecast from Open-Meteo for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
   else{chip.className='chip preview';chip.textContent='Preview wind';
     note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}
-  if(data) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from Open-Meteo Marine (about 8 km grid, so approximate near shore).'
+  if(data&&wavesOn()) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from Open-Meteo Marine (about 8 km grid, so approximate near shore).'
     :marine.none==='far'?' No wave forecast covers this location.':' The wave forecast didn’t load.');
-  $('#lgw').hidden=!(marine&&marine.h)}
+  $('#lgw').hidden=!(wavesOn()&&marine&&marine.h)}
 // Forecast refresh: refetch when the forecast is older than 30 minutes or didn't load, checked every minute
 // and whenever the app comes back to the foreground. Failed attempts retry at most every 5 minutes unless forced.
 // A failed refresh keeps the last live forecast (flagged as possibly out of date) rather than dropping to preview.
@@ -986,9 +999,14 @@ $('#lgeo').onclick=()=>{const m=$('#lmsg');if(!navigator.geolocation){m.textCont
   try{navigator.geolocation.getCurrentPosition(p=>{applyLoc({name:'My location',lat:+p.coords.latitude.toFixed(4),lon:+p.coords.longitude.toFixed(4)});m.textContent='Using your location.'},
     ()=>{m.textContent='Location isn’t available in this view. Type the coordinates instead.'},{timeout:8000})}catch(e){m.textContent='Location isn’t available in this view. Type the coordinates instead.'}};
 $('#cglow').checked=GLOW;$('#cglow').onchange=e=>{GLOW=e.target.checked;store.set('dp.glow',GLOW)};
-function renderLim(){$('#rgood').value=LIM.good;$('#rrough').value=LIM.rough;$('#ogood').textContent=LIM.good+' km/h';$('#orough').textContent=LIM.rough+' km/h'}
-$('#rgood').oninput=e=>{LIM.good=+e.target.value;if(LIM.rough<LIM.good+3)LIM.rough=LIM.good+3;store.set('dp.lim',LIM);renderLim();renderVerdict();drawTL()};
-$('#rrough').oninput=e=>{LIM.rough=+e.target.value;if(LIM.good>LIM.rough-3)LIM.good=LIM.rough-3;store.set('dp.lim',LIM);renderLim();renderVerdict();drawTL()};
+const MODE_NAME={water:'On the water',land:'On land'};
+function renderLim(){$('#rgood').value=LIM.good;$('#rrough').value=LIM.rough;$('#ogood').textContent=LIM.good+' km/h';$('#orough').textContent=LIM.rough+' km/h';
+  $('#limmode').textContent=MODE_NAME[MODE];document.querySelectorAll('.mode').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===MODE))}
+const saveLim=()=>store.set('dp.lims',LIMS);
+$('#rgood').oninput=e=>{LIM.good=+e.target.value;if(LIM.rough<LIM.good+3)LIM.rough=LIM.good+3;saveLim();renderLim();renderVerdict();drawTL()};
+$('#rrough').oninput=e=>{LIM.rough=+e.target.value;if(LIM.good>LIM.rough-3)LIM.good=LIM.rough-3;saveLim();renderLim();renderVerdict();drawTL()};
+function setMode(m){MODE=m;LIM=LIMS[m];store.set('dp.mode',m);renderLim();renderData();renderVerdict();drawTL();hudTick(true)}
+document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 
 /* ---------- boot ---------- */
 renderLoc();renderLim();renderTabs();
