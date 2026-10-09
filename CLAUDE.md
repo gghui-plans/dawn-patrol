@@ -39,6 +39,12 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - While the first fetch is in flight, the UI shows a loading state, not preview data.
   - If the fetch fails, `previewData()` supplies a fixed Toronto estimate pinned to Oct 9–11 2026, and the UI labels it as preview data. Days outside those dates show no wind.
   - It refetches when the forecast is over 30 minutes old or didn't load. This is checked every minute and whenever the app returns to the foreground. If a refresh fails, the app keeps the last live forecast and flags it as possibly out of date. The day tabs roll over at midnight.
+- **Wave data** comes from the Open-Meteo Marine API, using `best_match` (on Lake Ontario that's MeteoFrance MFWAM, about an 8 km grid). It fetches 3 days of hourly wave height, direction and period, and swell height, period and direction, alongside the wind.
+  - **Model choice:** don't pin NCEP GFS Wave, which returns zeros on the Great Lakes.
+  - **Cell selection:** `cell_selection=sea` takes the nearest water cell. If that cell is more than 30 km away, the location counts as not near modelled water, and the app says "no forecast near here" instead of borrowing it.
+  - **Direction:** given as "from," like wind.
+  - **No preview fallback:** without live data, no wave numbers are shown.
+  - **Display only:** waves appear in the scene HUD (swell only from 0.2 m), in the verdict sentence and as a line on the timeline. They never change the rating, because the forecast describes open water a few km out, not the shoreline.
 - **Settings** (location, gust limits, city glow) are saved in `localStorage`. "Use my location" calls the browser's geolocation, which needs HTTPS.
 
 ## Verdict rules
@@ -80,6 +86,34 @@ It is a personal project. The owner opens it from a home-screen icon to check th
 ## Hosting
 
 Static files only. GitHub Pages, Netlify or the owner's own website all work. It must be served over HTTPS for geolocation and for installing to the home screen. `manifest.webmanifest` and the icons make it installable via "Add to Home Screen."
+
+## Planned: map view, waves and modes
+
+A Windy-style map as a second view in the top scene, wave data, and two usage modes. The owner agreed the plan on 2026-10-09 and is building it step by step.
+
+**Decisions:**
+1. **Map tiles:** CARTO "Dark Matter" raster tiles, with no key or account. This is the one allowed exception to "Google Fonts is the only external load." Credit: © OpenStreetMap contributors © CARTO. If tiles fail, draw the layers on plain dark with a note.
+2. **Switching:** a **Sky | Map** toggle with page dots at the top centre of the scene. Swiping isn't used, because a horizontal drag on the sky already scrubs time and the map needs drag to pan. The bottom time strip works in both views.
+3. **Waves never change the Calm / Manageable / Rough rating.** They appear in the verdict text and on the timeline.
+4. **Two modes**, "On the water" and "On land," built as part of this feature:
+   - each mode keeps its own wind limits
+   - land mode hides wave information
+   - the mode switch sits near the verdict
+   - existing limits become the water mode's; ask the owner for land-mode defaults
+   - keep the wording generic: no activity names
+5. **Map area:** opens about 60 km around the saved location, then free pan and pinch-zoom from the whole lake down to local.
+   - Refetch the data grid for the view once movement settles, and cache recent grids.
+   - Add a recentre button.
+
+**Data budget:** Open-Meteo counts each point in a multi-point request. A fresh map area (7×7 wind plus 7×7 marine) costs about 100 of the 10,000 free daily points. Cache areas, and fetch only while the map is open.
+
+**Build order:**
+1. ~~Wave data at the spot: HUD readout, verdict sentence, timeline line, honest no-data states.~~ Done.
+2. Two modes.
+3. Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.
+4. Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.
+5. Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.
+6. Polish: loading and failure states per layer, a phone check, and moving this section into Architecture.
 
 ## Ideas not built yet
 

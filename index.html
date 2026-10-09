@@ -184,6 +184,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <div class="phase" id="phase">Civil twilight</div>
       <div class="alt" id="alt">Sun 3.1° below the horizon</div>
       <div class="alt" id="cloudl"></div>
+      <div class="alt" id="wavel"></div>
     </div>
     <div class="hud gauge" aria-hidden="true">
       <div class="rail"></div>
@@ -231,6 +232,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <span><i class="sw" style="background:var(--go)"></i>Calm</span>
       <span><i class="sw" style="background:var(--maybe)"></i>Manageable</span>
       <span><i class="sw" style="background:var(--nogo)"></i>Rough</span>
+      <span id="lgw" hidden><i class="sw" style="background:#7fd3e6;height:2px"></i>Waves (right scale)</span>
       <span>Bars: sustained wind · ticks: gusts · faded: outside daylight</span>
     </div>
     <p class="note" id="datanote"></p>
@@ -401,6 +403,29 @@ function windAt(t){
   const k=Math.round(x);
   return{sus:L(data.sus),gust:L(data.gust),dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[k]:null,temp:L(data.temp)};
 }
+/* Waves: Open-Meteo Marine, best_match (on Lake Ontario that's MeteoFrance MFWAM, ~8 km; NCEP GFS Wave doesn't model
+   the Great Lakes). cell_selection=sea takes the nearest water cell, so a shoreline location gets the cell just offshore.
+   If that cell is more than 30 km away, the location isn't near modelled water and we say so instead of borrowing it.
+   Directions are "from", like wind. There is no preview fallback: no live data means no wave numbers. */
+let marine=null; // {start,h,dir,per,sw,swp,swd,km,fetched} | {none:'far'|'failed'}
+async function fetchMarine(){
+  const u=`https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,swell_wave_direction&timeformat=unixtime&timezone=auto&forecast_days=3&cell_selection=sea`;
+  const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
+  try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(),h=j.hourly;
+    const km=6371*2*Math.asin(Math.sqrt(Math.sin((j.latitude-loc.lat)*DEG/2)**2+Math.cos(loc.lat*DEG)*Math.cos(j.latitude*DEG)*Math.sin((j.longitude-loc.lon)*DEG/2)**2));
+    if(km>30||!h.wave_height.some(v=>v!=null)) return{none:'far'};
+    return{start:h.time[0]*1000,h:h.wave_height,dir:h.wave_direction,per:h.wave_period,sw:h.swell_wave_height,swp:h.swell_wave_period,swd:h.swell_wave_direction,km,fetched:Date.now()};
+  }finally{clearTimeout(to)}
+}
+function waveAt(t){
+  if(!marine||!marine.h) return null; const x=(t-marine.start)/HOUR, n=marine.h.length; if(x<0||x>n-1) return null;
+  const i=Math.floor(x),f=x-i,j=Math.min(i+1,n-1);
+  const L=a=>!a||a[i]==null||a[j]==null?null:a[i]+(a[j]-a[i])*f;
+  const A=a=>{if(!a||a[i]==null||a[j]==null)return null;const dd=((a[j]-a[i]+540)%360)-180;return(a[i]+dd*f+360)%360};
+  const h=L(marine.h); return h==null?null:{h,per:L(marine.per),dir:A(marine.dir),sw:L(marine.sw),swp:L(marine.swp),swd:A(marine.swd)};
+}
+function waveStats(a,b){let sum=0,n=0,max=null;for(let x=a;x<b;x+=10*MIN){const w=waveAt(x);if(!w)continue;sum+=w.h;n++;if(!max||w.h>max.h)max={h:w.h,t:x}}return n?{avg:sum/n,max}:null}
+const m1=h=>h<0.1?'under 0.1 m':`${h.toFixed(1)} m`;
 // Cloud cover (0–1) for each layer at time t, interpolated between forecast hours. Null without cloud data (preview).
 function cloudAt(t){
   if(!data||!data.cl) return null; const x=(t-data.start)/HOUR, n=data.cl.length; if(x<0||x>n-1) return null;
@@ -431,7 +456,7 @@ function evaluate(i){
   const stats=ps=>{const v=ps.filter(p=>p.w);return{avg:Math.round(v.reduce((a,p)=>a+p.w.sus,0)/v.length),max:Math.round(Math.max(...v.map(p=>p.w.gust))),rain:v.some(p=>p.w.pop!=null&&p.w.pop>=50)}};
   const all=stats(pts);
   let win=best(2), kind='go'; if(!win){win=best(1);kind='maybe'} if(!win) kind='nogo';
-  const res={kind,all,win,dawn,dusk:e,startedLate:i===0&&s>dawn};
+  const res={kind,all,win,dawn,from:s,dusk:e,startedLate:i===0&&s>dawn};
   if(win){res.ws=stats(win.pts);const after=pts.filter(p=>p.t>=win.b&&p.w);if(after.length){const pk=after.reduce((a,p)=>p.w.gust>a.w.gust?p:a);res.after={sus:Math.round(pk.w.sus),gust:Math.round(pk.w.gust),t:pk.t}}}
   return res;
 }
@@ -451,6 +476,10 @@ function renderVerdict(){
   else if(v.kind==='loading'){head='Checking the wind…';sub='';}
   else {head='No wind forecast for this day.';sub=data&&!data.live?'The live forecast didn’t load, and the preview estimate only covers Oct 9 to 11, 2026.':'';}
   if(v.win&&v.ws.rain) sub+=' Rain is likely during the window.';
+  // waves are mentioned, never rated: the forecast describes open water a few km out, not the shoreline
+  if(v.win){const ws=waveStats(v.win.a,v.win.b),after=waveStats(v.win.b,v.dusk);
+    if(ws){sub+=` Waves around ${m1(ws.avg)}`;if(after&&after.max.h>=ws.avg+0.2)sub+=`, building to ${m1(after.max.h)} around ${fmt(new Date(after.max.t))}`;sub+='.'}}
+  else if(v.kind==='nogo'){const s=waveStats(v.from,v.dusk);if(s)sub+=` Waves up to ${m1(s.max.h)}.`}
   $('#vh').textContent=head; $('#vwin').innerHTML=winLine; $('#vsub').textContent=sub;
   const jb=$('#vjump'); jb.hidden=!v.win; jb.onclick=()=>{setTime(v.win.a+5*MIN)};
   // tab dots
@@ -538,6 +567,12 @@ function drawTL(){
     const col=s===2?'95,212,155':s===1?'242,197,90':'255,123,107';const x=X(tm)-bw/2;
     c.fillStyle=`rgba(${col},${day?.85:.28})`;c.beginPath();c.roundRect?c.roundRect(x,Y(w.sus),bw,cy1-Y(w.sus),[2,2,0,0]):c.rect(x,Y(w.sus),bw,cy1-Y(w.sus));c.fill();
     c.fillStyle=`rgba(233,238,246,${day?.9:.35})`;c.fillRect(x-1,Math.round(Y(w.gust))-1,bw+2,2)}
+  // wave height: a thin line on its own scale (right-hand label), drawn every half hour
+  const wv=[];let maxW=0;for(let k=0;k<=nH*2;k++){const w=waveAt(d0+k*30*MIN);wv.push(w?w.h:null);if(w)maxW=Math.max(maxW,w.h)}
+  if(wv.some(h=>h!=null)){const top=Math.max(1,Math.ceil(maxW*2)/2),WY=h=>cy1-h/top*(cy1-cy0);
+    c.strokeStyle='rgba(127,211,230,.9)';c.lineWidth=1.5;c.beginPath();let pen=false;
+    wv.forEach((h,k)=>{if(h==null){pen=false;return}const x=X(d0+k*30*MIN),y=WY(h);pen?c.lineTo(x,y):c.moveTo(x,y);pen=true});c.stroke();
+    c.fillStyle='rgba(127,211,230,.95)';c.textAlign='right';c.fillText(`${top} m`,W-4,cy0+8)}
   // limits
   c.setLineDash([3,3]);[[LIM.good,'95,212,155'],[LIM.rough,'255,123,107']].forEach(([g,col])=>{if(g<=maxG){c.strokeStyle=`rgba(${col},.7)`;c.beginPath();c.moveTo(0,Math.round(Y(g))+.5);c.lineTo(W,Math.round(Y(g))+.5);c.stroke()}});c.setLineDash([]);
   c.fillStyle='#95a2bb';c.textAlign='left';c.fillText(`${maxG} km/h`,4,cy0+8);
@@ -608,6 +643,9 @@ function hudTick(force){
   const cc=cloudAt(selT),pc=v=>Math.round(v*100);
   $('#cloudl').textContent=cc?`Cloud ${cc.total==null?'—':pc(cc.total)+'%'} · low ${pc(cc.low)} mid ${pc(cc.mid)} high ${pc(cc.high)}`
     :!data?'':data.live?'Cloud: no forecast':'Cloud: no data in preview';
+  const wa=waveAt(selT);
+  $('#wavel').textContent=wa?`Waves ${m1(wa.h)}${wa.per?` · ${Math.round(wa.per)} s`:''}${wa.dir!=null?` · from ${card(wa.dir)}`:''}${wa.sw>=0.2?` · swell ${m1(wa.sw)}`:''}`
+    :!marine?'':marine.none==='far'?'Waves: no forecast near here':marine.none==='failed'?'Waves: didn’t load':'Waves: no forecast';
   const g=$('#gdot');g.style.top=clamp((30-a)/54*100,0,100)+'%';g.classList.toggle('below',a<0);
   $('.scrim').style.opacity=(0.45+0.55*sstep(-14,-4,a)).toFixed(2); // a dark sky doesn't need the full scrim behind the text
   const w=windAt(selT);
@@ -903,16 +941,20 @@ function renderData(){const chip=$('#datachip'),note=$('#datanote');
   else if(data.live){chip.className='chip live';chip.textContent='Live wind · Open-Meteo';
     note.innerHTML=`Hourly forecast from Open-Meteo for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
   else{chip.className='chip preview';chip.textContent='Preview wind';
-    note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}}
+    note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}
+  if(data) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from Open-Meteo Marine (about 8 km grid, so approximate near shore).'
+    :marine.none==='far'?' No wave forecast covers this location.':' The wave forecast didn’t load.');
+  $('#lgw').hidden=!(marine&&marine.h)}
 // Forecast refresh: refetch when the forecast is older than 30 minutes or didn't load, checked every minute
 // and whenever the app comes back to the foreground. Failed attempts retry at most every 5 minutes unless forced.
 // A failed refresh keeps the last live forecast (flagged as possibly out of date) rather than dropping to preview.
 let loadSeq=0, lastTry=0;
 async function loadData(){
   const seq=++loadSeq; loading=true; lastTry=Date.now();
-  let d=null; try{d=await fetchLive()}catch(e){}
+  const [d,m]=await Promise.all([fetchLive().catch(()=>null),fetchMarine().catch(()=>null)]);
   if(seq!==loadSeq) return; // a newer load (e.g. a location change) has taken over
   loading=false;
+  if(m) marine=m; else if(!marine||!marine.h) marine={none:'failed'}; // a failed refresh keeps the last wave forecast
   let zoneChanged=false;
   if(d){if(d.tz&&d.tz!==loc.tz&&okTz(d.tz)){loc={...loc,tz:d.tz};store.set('dp.loc',loc);zoneChanged=true}data=d}
   else if(data&&data.live) data.refreshFailed=true; else data=previewData();
@@ -935,7 +977,7 @@ window.addEventListener('online',()=>maybeRefresh(true));
 setInterval(()=>{checkDay();maybeRefresh(false)},MIN);
 function applyLoc(nl){
   if(nl.lat===loc.lat&&nl.lon===loc.lon&&loc.tz) nl.tz=loc.tz; // same spot renamed: keep its time zone
-  loc=nl;store.set('dp.loc',loc);data=null;loadData();renderData();relayout()}
+  loc=nl;store.set('dp.loc',loc);data=null;marine=null;loadData();renderData();relayout()}
 $('#lsave').onclick=()=>{const lat=parseFloat($('#llat').value),lon=parseFloat($('#llon').value);
   if(!(lat>=-90&&lat<=90&&lon>=-180&&lon<=180)){$('#lmsg').textContent='Enter latitude between −90 and 90 and longitude between −180 and 180.';return}
   applyLoc({name:$('#lname').value.trim()||'My spot',lat,lon});$('#lmsg').textContent='Saved.'};
