@@ -743,7 +743,7 @@ function drawMini(d0,span){
 }
 const hint=$('#hint');
 function dismissHint(){store.set('dp.scrubHint',true);if(hint.hidden)return;hint.classList.add('gone');setTimeout(()=>hint.hidden=true,500)}
-if(!store.get('dp.scrubHint',false)){hint.hidden=false;setTimeout(()=>{hint.classList.add('gone');setTimeout(()=>hint.hidden=true,500)},6000)}
+if(!store.get('dp.scrubHint',false))hint.hidden=false; // stays until the first drag (sky or strip), then never shows again
 let miniDrag=false;
 const tFromMini=e=>{const r=mini.getBoundingClientRect(),d0=dayStart(dayIdx);return d0+clamp((e.clientX-r.left)/r.width,0,0.9993)*(dayStart(dayIdx+1)-d0)};
 mini.addEventListener('pointerdown',e=>{miniDrag=true;try{mini.setPointerCapture(e.pointerId)}catch(_){}setTime(tFromMini(e));dismissHint()});
