@@ -40,16 +40,17 @@ img{max-width:100%}
 }
 html,body{background:var(--bg);color:var(--fg)}
 body{font-family:var(--body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
-.app{max-width:880px;margin:0 auto;padding-inline:16px;padding-block:14px 48px;display:grid;gap:14px}
+.app{max-width:880px;margin:0 auto;padding-inline:16px;padding-block:14px 48px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px} /* minmax(0,…): no child can widen the page past the screen */
 button{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--sun);outline-offset:2px}
 
 /* header */
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative}
+.top>*{min-width:0}
 .brand{font-family:var(--display);font-stretch:68%;font-weight:800;font-size:22px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:10px}
 .brand i{width:22px;height:11px;border-radius:22px 22px 0 0;background:linear-gradient(var(--sun),#e0603f);display:inline-block;position:relative;top:-2px;box-shadow:0 5px 0 -3px var(--sun)}
-.chips{display:flex;gap:8px;flex-wrap:wrap}
-.chip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:5px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}
+.chip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box;font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:5px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
 .chip b{color:var(--fg);font-weight:600}
 .chip.preview{border-color:#5a4a26;color:#e8cf8f}
 .chip.live{border-color:#245a43;color:#9ee6c2}
@@ -108,7 +109,19 @@ button{font:inherit;color:inherit}
 .pickbar input{flex:1;min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:7px 9px;color:#fff;font:inherit;font-size:13px}
 .pbtn{flex:1;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;border-radius:999px;padding:8px 10px;font-size:13.5px;cursor:pointer}
 .pbtn.primary{background:var(--sun);border-color:var(--sun);color:#1a1205;font-weight:700}
-#locchip{cursor:pointer}
+/* location chip opens the saved-locations menu */
+button.chip{font:inherit;font-family:var(--mono);font-size:11px;cursor:pointer;text-align:left}
+#locchip .caret{margin-left:6px;color:var(--fg)}
+.locmenu{position:absolute;z-index:30;left:0;top:calc(100% + 6px);width:min(340px,100%);box-sizing:border-box;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.lm-item{display:flex;align-items:center;border-radius:10px}
+.lm-item.cur{background:var(--panel-2)}
+.lm-item .pick{flex:1;min-width:0;display:block;border:0;background:transparent;padding:8px 10px;cursor:pointer;text-align:left;color:var(--fg)}
+.lm-item .nm{display:block;font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lm-item .ll{display:block;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.lm-item .tick{color:var(--go);margin-right:6px}
+.lm-item .del{border:0;background:transparent;color:var(--dim);font-size:18px;line-height:1;padding:8px 12px;cursor:pointer}
+.lm-act{display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:transparent;padding:11px 10px;font-size:13.5px;cursor:pointer;color:var(--fg)}
+.lm-msg{font-size:12px;color:var(--dim);padding:4px 10px 6px}
 .attrib{text-align:right;line-height:1.3;font-size:8.5px;color:rgba(255,255,255,.6)}
 .attrib a{color:inherit}
 .mapnote{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.7);color:#fff;white-space:nowrap}
@@ -236,8 +249,14 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
   <header class="top">
     <div class="brand"><i aria-hidden="true"></i>Dawn Patrol</div>
     <div class="chips">
-      <span class="chip" id="locchip" role="button" tabindex="0" title="Choose a location on the map"><b>Toronto</b> 43.65, −79.38</span>
+      <button type="button" class="chip" id="locchip" aria-haspopup="true" aria-expanded="false" aria-controls="locmenu"><b>Toronto</b> 43.65, −79.38</button>
       <span class="chip" id="datachip">Loading wind</span>
+    </div>
+    <div class="locmenu" id="locmenu" role="menu" aria-label="Saved locations" hidden>
+      <div id="loclist"></div>
+      <button type="button" class="lm-act" id="lmadd" role="menuitem">＋ Add a spot on the map</button>
+      <button type="button" class="lm-act" id="lmgeo" role="menuitem">◎ Use my location</button>
+      <div class="lm-msg" id="lmmsg" role="status"></div>
     </div>
   </header>
 
@@ -251,7 +270,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     </div>
     <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
     <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
-    <button class="mapbtn mapui" id="pickstart" type="button">Set location</button>
+    <button class="mapbtn mapui" id="pickstart" type="button">Add spot</button>
     <svg class="pickpin" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 3 24 3 15a12 12 0 0 1 24 0c0 9-12 24-12 24z" fill="#f4a259" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="4.5" fill="#fff"/></svg>
     <div class="pickbar" role="group" aria-label="Choose a location">
       <div class="pickrow"><span class="pickcoord" id="pickcoord">—</span><input id="pickname" type="text" placeholder="Name (optional)" maxlength="40" autocomplete="off" aria-label="Location name"></div>
@@ -325,7 +344,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <span><i class="sw" style="background:var(--maybe)"></i>Manageable</span>
       <span><i class="sw" style="background:var(--nogo)"></i>Rough</span>
       <span id="lgw" hidden><i class="sw" style="background:#7fd3e6;height:2px"></i>Waves (right scale)</span>
-      <span>Bars: sustained wind · ticks: gusts · faded: outside daylight</span>
+      <span>Bars: sustained wind · ticks: gusts · dashed lines: your calm and rough gust limits · faded: outside daylight</span>
       <span class="lgnum">Numbers per 3 h: average wind, <span style="color:var(--dim)">strongest gust</span> (km/h)<span id="lgwn">, <span style="color:#7fd3e6">highest waves</span> (m)</span></span>
     </div>
     <p class="note" id="datanote"></p>
@@ -441,8 +460,18 @@ return{getPosition,getTimes,getMoonPosition,getMoonIllumination}})();
 const compassAz=a=>((a/DEG+180)%360+360)%360; // SunCalc azimuth is from south, westward
 
 /* ---------- state ---------- */
-const DEFAULT_LOC={name:'Toronto',lat:43.65,lon:-79.38,tz:'America/Toronto'};
-let loc=store.get('dp.loc',DEFAULT_LOC);
+/* Saved locations. Defaults are the owner's spots, each placed on the water (checked against the map tiles):
+   just off the Humber River mouth, the lake in front of Pickering's Beachfront Park, and the centre of Lake Wilcox.
+   On first run of this version, an existing custom location is kept and added to the list. */
+const DEFAULT_LOC={name:'Toronto',lat:43.65,lon:-79.38,tz:'America/Toronto'}; // the old single default
+const DEFAULT_LOCS=[{name:'Humber River mouth',lat:43.6285,lon:-79.4705,tz:'America/Toronto'},
+  {name:'Pickering Beachfront',lat:43.8080,lon:-79.0770,tz:'America/Toronto'},
+  {name:'Lake Wilcox',lat:43.9493,lon:-79.4365,tz:'America/Toronto'}];
+const sameSpot=(a,b)=>a&&b&&Math.abs(a.lat-b.lat)<1e-4&&Math.abs(a.lon-b.lon)<1e-4;
+const oldLoc=store.get('dp.loc',null), oldIsDefault=!oldLoc||sameSpot(oldLoc,DEFAULT_LOC);
+let LOCS=store.get('dp.locs',null);
+if(!Array.isArray(LOCS)||!LOCS.length){LOCS=DEFAULT_LOCS.map(s=>({...s}));if(!oldIsDefault&&!LOCS.some(s=>sameSpot(s,oldLoc)))LOCS.push(oldLoc);store.set('dp.locs',LOCS)}
+let loc=oldIsDefault?{...LOCS[0]}:oldLoc;
 if(loc.tz&&!okTz(loc.tz)) delete loc.tz;
 // Two modes, each with its own wind limits. "On land" hides wave information. Older single limits become the water mode's.
 const LIMS=store.get('dp.lims',null)||{water:store.get('dp.lim',{good:25,rough:35}),land:{good:35,rough:50}};
@@ -499,8 +528,10 @@ function windAt(t){
   const i=Math.floor(x),f=x-i,j=Math.min(i+1,n-1);
   const L=a=>(!a||a[i]==null||a[j]==null)?null:a[i]+(a[j]-a[i])*f;
   const d1=data.dir[i],d2=data.dir[j],dd=((d2-d1+540)%360)-180;
-  const k=Math.round(x);
-  return{sus:L(data.sus),gust:L(data.gust),dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[k]:null,temp:L(data.temp)};
+  // Open-Meteo: wind speed is instantaneous at each hour (interpolate), but gusts are the maximum over the preceding hour
+  // and rain chance covers the preceding hour, so a moment inside hour [i, i+1) takes the value stamped i+1, unblended.
+  // (Blending gusts at half past shaved peaks off the chart and made it disagree with the 3-hour numbers.)
+  return{sus:L(data.sus),gust:data.gust[j]==null?null:data.gust[j],dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[j]:null,temp:L(data.temp)};
 }
 /* Waves: Open-Meteo Marine, pinned to ECMWF WAM (9 km, hourly; the model Windy uses). Open-Meteo's ECMWF feed has total
    waves only, no swell split; on a lake the swell split adds little, and total waves already include leftover waves.
@@ -658,10 +689,11 @@ function drawTL(){
   bandCache.forEach((col,m)=>{c.fillStyle=col;c.fillRect(Math.floor(m/288*W),bandY,Math.ceil(W/288)+1,bandH)});
   // chart
   const tt=timesFor(dayIdx),dawn=tt.dawn.getTime(),dusk=tt.dusk.getTime();
-  let maxG=40;for(let h=0;h<nH;h++){const w=windAt(d0+h*HOUR+30*MIN);if(w&&w.gust)maxG=Math.max(maxG,w.gust)}maxG=Math.ceil(maxG/10)*10;
+  let gMax=0;for(let h=0;h<nH;h++){const w=windAt(d0+h*HOUR+30*MIN);if(w&&w.gust)gMax=Math.max(gMax,w.gust)}
+  const maxG=Math.ceil(Math.max(40,gMax+5,LIM.rough+5)/10)*10,gStep=maxG>60?20:10; // headroom: the highest gust never touches the top
   const Y=v=>cy1-(v/maxG)*(cy1-cy0);
   c.strokeStyle='#24324f';c.lineWidth=1;c.font='10px "JetBrains Mono",monospace';c.fillStyle='#95a2bb';
-  for(let v=10;v<=maxG;v+=10){c.beginPath();c.moveTo(0,Math.round(Y(v))+.5);c.lineTo(W,Math.round(Y(v))+.5);c.stroke()}
+  for(let v=gStep;v<=maxG;v+=gStep){c.beginPath();c.moveTo(0,Math.round(Y(v))+.5);c.lineTo(W,Math.round(Y(v))+.5);c.stroke()}
   const v=evaluate(dayIdx);
   if(v.win){c.fillStyle='rgba(95,212,155,.10)';if(v.kind==='maybe')c.fillStyle='rgba(242,197,90,.10)';c.fillRect(X(v.win.a),cy0-6,X(v.win.b)-X(v.win.a),cy1-cy0+6)}
   const bw=Math.max(3,W/24*0.62);
@@ -670,14 +702,18 @@ function drawTL(){
     c.fillStyle=`rgba(${col},${day?.85:.28})`;c.beginPath();c.roundRect?c.roundRect(x,Y(w.sus),bw,cy1-Y(w.sus),[2,2,0,0]):c.rect(x,Y(w.sus),bw,cy1-Y(w.sus));c.fill();
     c.fillStyle=`rgba(233,238,246,${day?.9:.35})`;c.fillRect(x-1,Math.round(Y(w.gust))-1,bw+2,2)}
   // wave height: a thin line on its own scale (right-hand label), drawn every half hour
-  const wv=[];let maxW=0;for(let k=0;k<=nH*2;k++){const w=waveAt(d0+k*30*MIN);wv.push(w?w.h:null);if(w)maxW=Math.max(maxW,w.h)}
+  let waveTop=0;const wv=[];let maxW=0;for(let k=0;k<=nH*2;k++){const w=waveAt(d0+k*30*MIN);wv.push(w?w.h:null);if(w)maxW=Math.max(maxW,w.h)}
   if(wavesOn()&&wv.some(h=>h!=null)){const top=Math.max(1,Math.ceil(maxW*2)/2),WY=h=>cy1-h/top*(cy1-cy0);
     c.strokeStyle='rgba(127,211,230,.9)';c.lineWidth=1.5;c.beginPath();let pen=false;
     wv.forEach((h,k)=>{if(h==null){pen=false;return}const x=X(d0+k*30*MIN),y=WY(h);pen?c.lineTo(x,y):c.moveTo(x,y);pen=true});c.stroke();
-    c.fillStyle='rgba(127,211,230,.95)';c.textAlign='right';c.fillText(`${top} m`,W-4,cy0+8)}
+    waveTop=top}
   // limits
-  c.setLineDash([3,3]);[[LIM.good,'95,212,155'],[LIM.rough,'255,123,107']].forEach(([g,col])=>{if(g<=maxG){c.strokeStyle=`rgba(${col},.7)`;c.beginPath();c.moveTo(0,Math.round(Y(g))+.5);c.lineTo(W,Math.round(Y(g))+.5);c.stroke()}});c.setLineDash([]);
-  c.fillStyle='#95a2bb';c.textAlign='left';c.fillText(`${maxG} km/h`,4,cy0+8);
+  c.setLineDash([3,3]);[[LIM.good,'95,212,155'],[LIM.rough,'255,123,107']].forEach(([g,col])=>{c.strokeStyle=`rgba(${col},.7)`;c.beginPath();c.moveTo(0,Math.round(Y(g))+.5);c.lineTo(W,Math.round(Y(g))+.5);c.stroke()});c.setLineDash([]);
+  // scale labels sit just above their lines, outlined in the panel colour so bars and lines can't hide them
+  const tag=(txt,x,y,col,align)=>{c.textAlign=align;c.lineWidth=3;c.strokeStyle='#101829';c.strokeText(txt,x,y);c.fillStyle=col;c.fillText(txt,x,y)};
+  for(let v=gStep;v<=maxG;v+=gStep)tag(v===maxG?`${v} km/h`:String(v),3,Math.round(Y(v))-3,'#95a2bb','left');
+  tag(`calm ${LIM.good}`,W-3,Math.round(Y(LIM.good))-3,'rgba(95,212,155,.95)','right');tag(`rough ${LIM.rough}`,W-3,Math.round(Y(LIM.rough))-3,'rgba(255,123,107,.95)','right');
+  if(waveTop)tag(`waves ${waveTop} m`,W-3,cy0-3,'rgba(127,211,230,.95)','right');c.lineWidth=1;
   // hour labels
   const wd=wall(d0+12*HOUR);
   c.textAlign='center';[0,3,6,9,12,15,18,21,24].forEach(h=>{const lab=h===0||h===24?'12a':h===12?'12p':h<12?h+'a':(h-12)+'p';const x=clamp(X(zoned(wd.y,wd.mo,wd.d,h)),10,W-10);if(W<420&&h%6)return;c.fillText(lab,x,H-5)});
@@ -1291,18 +1327,18 @@ let picking=false;
 const llTxt=(v,dp=4)=>v.toFixed(dp).replace('-','−');
 function startPick(){
   setView('map');picking=true;$('#scene').classList.add('picking');$('#pickname').value='';mapDirty=true;
+  if(!mapC)mapC={lat:loc.lat,lon:loc.lon}; // the map may not have drawn a frame yet
   $('#scene').scrollIntoView({block:'start',behavior:reduce?'auto':'smooth'});
 }
 function endPick(){picking=false;$('#scene').classList.remove('picking');mapDirty=true}
 $('#pickstart').onclick=startPick;$('#lpick').onclick=startPick;$('#pickcancel').onclick=endPick;
-$('#locchip').onclick=startPick;$('#locchip').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();startPick()}};
 $('#pickuse').onclick=()=>{const lat=+mapC.lat.toFixed(4),lon=+(((mapC.lon+540)%360)-180).toFixed(4);endPick();
-  applyLoc({name:$('#pickname').value.trim()||'Pinned spot',lat,lon});$('#lmsg').textContent='Saved.'};
+  addLoc({name:$('#pickname').value.trim()||'Pinned spot',lat,lon});$('#lmsg').textContent='Saved.'};
 
 /* ---------- settings ---------- */
 function renderLoc(){
   const zone=!loc.tz?' · device time':loc.tz!==DEVICE_TZ?` · ${esc(tzAbbr(Date.now()))}`:''; // flag times that aren't the phone's own
-  $('#locchip').innerHTML=`<b>${esc(loc.name)}</b> ${(+loc.lat).toFixed(2).replace('-','−')}, ${(+loc.lon).toFixed(2).replace('-','−')}${zone}`;$('#lname').value=loc.name;$('#llat').value=loc.lat;$('#llon').value=loc.lon}
+  $('#locchip').innerHTML=`<b>${esc(loc.name)}</b> ${(+loc.lat).toFixed(2).replace('-','−')}, ${(+loc.lon).toFixed(2).replace('-','−')}${zone}<span class="caret" aria-hidden="true">▾</span>`;$('#lname').value=loc.name;$('#llat').value=loc.lat;$('#llon').value=loc.lon}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtWhen=d=>d>=dayStart(0)?fmt(d):`${fmt(d)}, ${fmtDate(d,{month:'short',day:'numeric'})}`;
 function renderData(){const chip=$('#datachip'),note=$('#datanote');
@@ -1325,7 +1361,7 @@ async function loadData(){
   loading=false;
   if(m) marine=m; else if(!marine||!marine.h) marine={none:'failed'}; // a failed refresh keeps the last wave forecast
   let zoneChanged=false;
-  if(d){if(d.tz&&d.tz!==loc.tz&&okTz(d.tz)){loc={...loc,tz:d.tz};store.set('dp.loc',loc);zoneChanged=true}data=d}
+  if(d){if(d.tz&&d.tz!==loc.tz&&okTz(d.tz)){loc={...loc,tz:d.tz};store.set('dp.loc',loc);syncLoc();zoneChanged=true}data=d}
   else if(data&&data.live) data.refreshFailed=true; else data=previewData();
   renderData();
   if(zoneChanged) relayout(); else {bandCache=null;renderVerdict();drawTL();hudTick(true)}
@@ -1349,11 +1385,40 @@ function applyLoc(nl){
   loc=nl;store.set('dp.loc',loc);data=null;marine=null;mapC=null;mapDirty=true;loadData();renderData();relayout()}
 $('#lsave').onclick=()=>{const lat=parseFloat($('#llat').value),lon=parseFloat($('#llon').value);
   if(!(lat>=-90&&lat<=90&&lon>=-180&&lon<=180)){$('#lmsg').textContent='Enter latitude between −90 and 90 and longitude between −180 and 180.';return}
-  applyLoc({name:$('#lname').value.trim()||'My spot',lat,lon});$('#lmsg').textContent='Saved.'};
+  updateCurrentLoc({name:$('#lname').value.trim()||'My spot',lat,lon});$('#lmsg').textContent='Saved.'};
 $('#lgeo').onclick=()=>{const m=$('#lmsg');if(!navigator.geolocation){m.textContent='Location isn’t available here. Type coordinates instead.';return}
   m.textContent='Asking for your location…';
-  try{navigator.geolocation.getCurrentPosition(p=>{applyLoc({name:'My location',lat:+p.coords.latitude.toFixed(4),lon:+p.coords.longitude.toFixed(4)});m.textContent='Using your location.'},
+  try{navigator.geolocation.getCurrentPosition(p=>{useMyLocation(p);m.textContent='Using your location.'},
     ()=>{m.textContent='Location isn’t available in this view. Type the coordinates instead.'},{timeout:8000})}catch(e){m.textContent='Location isn’t available in this view. Type the coordinates instead.'}};
+/* Saved locations list: the chip opens a menu to switch, add (map pin or "my location") and remove spots.
+   Settings "Save location" edits the current spot in place. The current spot is matched in the list by coordinates. */
+const saveLocs=()=>store.set('dp.locs',LOCS);
+const curIdx=()=>LOCS.findIndex(s=>sameSpot(s,loc));
+function syncLoc(){const i=curIdx();if(i>=0){LOCS[i]={...loc};saveLocs()}} // e.g. once its time zone is known
+function addLoc(s){const i=LOCS.findIndex(x=>sameSpot(x,s));if(i>=0)LOCS[i]={...LOCS[i],name:s.name};else LOCS.push({...s});saveLocs();applyLoc({...(i>=0?LOCS[i]:s)});renderLocMenu()}
+function updateCurrentLoc(nl){const i=curIdx();if(i>=0){LOCS[i]={...nl};saveLocs()}else{LOCS.push({...nl});saveLocs()}applyLoc(nl);renderLocMenu()}
+function useMyLocation(p){const s={name:'My location',lat:+p.coords.latitude.toFixed(4),lon:+p.coords.longitude.toFixed(4)};
+  const i=LOCS.findIndex(x=>x.name==='My location');if(i>=0){LOCS[i]=s;saveLocs();applyLoc({...s});renderLocMenu()}else addLoc(s)} // one entry, updated in place
+function removeLoc(i){
+  if(LOCS.length<2)return;const s=LOCS[i];if(!confirm(`Remove “${s.name}” from your saved spots?`))return;
+  const wasCur=sameSpot(s,loc);LOCS.splice(i,1);saveLocs();if(wasCur)applyLoc({...LOCS[0]});renderLocMenu();
+}
+function renderLocMenu(){
+  const ci=curIdx(),one=LOCS.length<2;
+  $('#loclist').innerHTML=LOCS.map((s,i)=>`<div class="lm-item${i===ci?' cur':''}"><button type="button" class="pick" role="menuitemradio" aria-checked="${i===ci}" data-i="${i}"><span class="nm">${i===ci?'<span class="tick">✓</span>':''}${esc(s.name)}</span><span class="ll">${llTxt(+s.lat,3)}, ${llTxt(+s.lon,3)}</span></button>${one?'':`<button type="button" class="del" data-del="${i}" aria-label="Remove ${esc(s.name)}">×</button>`}</div>`).join('');
+  $('#loclist').querySelectorAll('.pick').forEach(b=>b.onclick=()=>{const s=LOCS[+b.dataset.i];closeLocMenu();if(!sameSpot(s,loc)||s.name!==loc.name)applyLoc({...s})});
+  $('#loclist').querySelectorAll('.del').forEach(b=>b.onclick=e=>{e.stopPropagation();removeLoc(+b.dataset.del)});
+}
+function openLocMenu(){renderLocMenu();$('#lmmsg').textContent='';$('#locmenu').hidden=false;$('#locchip').setAttribute('aria-expanded','true')}
+function closeLocMenu(){$('#locmenu').hidden=true;$('#locchip').setAttribute('aria-expanded','false')}
+$('#locchip').onclick=e=>{e.stopPropagation();$('#locmenu').hidden?openLocMenu():closeLocMenu()};
+$('#locmenu').onclick=e=>e.stopPropagation();
+document.addEventListener('click',()=>{if(!$('#locmenu').hidden)closeLocMenu()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#locmenu').hidden){closeLocMenu();$('#locchip').focus()}});
+$('#lmadd').onclick=()=>{closeLocMenu();startPick()};
+$('#lmgeo').onclick=()=>{const m=$('#lmmsg');if(!navigator.geolocation){m.textContent='Location isn’t available here.';return}
+  m.textContent='Asking for your location…';
+  try{navigator.geolocation.getCurrentPosition(p=>{useMyLocation(p);closeLocMenu()},()=>{m.textContent='Location isn’t available in this view.'},{timeout:8000})}catch(_){m.textContent='Location isn’t available in this view.'}};
 $('#cglow').checked=GLOW;$('#cglow').onchange=e=>{GLOW=e.target.checked;store.set('dp.glow',GLOW)};
 const MODE_NAME={water:'On the water',land:'On land'};
 function renderLim(){$('#rgood').value=LIM.good;$('#rrough').value=LIM.rough;$('#ogood').textContent=LIM.good+' km/h';$('#orough').textContent=LIM.rough+' km/h';

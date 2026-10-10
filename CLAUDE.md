@@ -59,6 +59,7 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - Moon position, illumination and phase are still SunCalc.
 - **Wind data** comes from the Open-Meteo hourly forecast: free, no API key, and free for non-commercial use.
   - It fetches 3 days of hourly speed, gusts, direction, precipitation chance, temperature and cloud cover (total, low, mid, high), with wind in km/h. The preview fallback has no cloud data, so it shows a clear sky and the HUD says "no data in preview."
+  - **Value timing:** Open-Meteo gives wind speed as an instant at each hour, so it's interpolated. Gusts are the maximum over the preceding hour, and rain chance covers the preceding hour, so `windAt()` gives any moment in hour [i, i+1) the value stamped i+1, unblended. Blending gusts shaved peaks off the chart and made the verdict slightly too generous.
   - While the first fetch is in flight, the UI shows a loading state, not preview data.
   - If the fetch fails, `previewData()` supplies a fixed Toronto estimate pinned to Oct 9–11 2026, and the UI labels it as preview data. Days outside those dates show no wind.
   - It refetches when the forecast is over 30 minutes old or didn't load. This is checked every minute and whenever the app returns to the foreground. If a refresh fails, the app keeps the last live forecast and flags it as possibly out of date. The day tabs roll over at midnight.
@@ -69,7 +70,12 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - **Direction:** given as "from," like wind.
   - **No preview fallback:** without live data, no wave numbers are shown.
   - **Display only:** waves appear in the scene HUD, in the verdict sentence and as a line on the timeline. They never change the rating, because the forecast describes open water a few km out, not the shoreline.
-- **Settings** (location, mode, each mode's gust limits, city glow) are saved in `localStorage`. Note that the desktop app's file preview blocks `localStorage`, so test persistence over a local web server. "Use my location" calls the browser's geolocation, which needs HTTPS.
+- **Saved locations** (`dp.locs`): tapping the location chip opens a menu to switch, add ("Add a spot on the map" with the pin picker, or "Use my location") and remove spots (×, with a confirm; the last one can't be removed).
+  - **Defaults** are the owner's spots, each checked against the tiles to be on water: just off the Humber River mouth (43.6285, −79.4705), the lake in front of Pickering's Beachfront Park (43.8080, −79.0770) and the centre of Lake Wilcox (43.9493, −79.4365).
+  - **Upgrade:** on first run of this version, an existing custom location is kept, added to the list and stays current.
+  - **Editing:** Settings "Save location" edits the current spot in place, and a learned time zone is written back to it.
+  - **Lake Wilcox** has no wave forecast, since the models don't cover small inland lakes, and says so.
+- **Settings** (current location, saved locations, mode, each mode's gust limits, city glow) are saved in `localStorage`. Note that the desktop app's file preview blocks `localStorage`, so test persistence over a local web server. "Use my location" calls the browser's geolocation, which needs HTTPS.
 
 ## Verdict rules
 
@@ -91,10 +97,15 @@ It is a personal project. The owner opens it from a home-screen icon to check th
 - Copy is plain and direct, with no exclamation marks. Wind uses Beaufort names (e.g. "gentle breeze").
 - The dark palette is deliberate in every theme. Colours live as CSS tokens at the top of the `<style>` block.
 - The layout must work at 400px wide with no horizontal scrolling. Respect `prefers-reduced-motion`.
+  - `.app` uses `grid-template-columns:minmax(0,1fr)`, and the header chips can shrink and cut long text off with "…". On iPhone Safari, the wrapping chip row once widened the whole page, which Chromium doesn't reproduce. Keep both guards.
 - **Time can be changed on the scene itself**, so the sky stays in view while scrubbing:
   - A horizontal drag on the sky nudges time. The full scene width is 6 hours, about a minute per pixel on a phone. Vertical drags still scroll the page (`touch-action: pan-y`).
   - The slim strip along the bottom of the scene maps the whole day and marks the six twilight moments.
   - The full timeline below stays as well, for the wind chart.
+- **Timeline chart scale:**
+  - The top is at least 5 km/h above the day's strongest gust (and above the rough limit), rounded up to 10.
+  - Each gridline is labelled just above itself. The dashed limit lines carry "calm N" and "rough N" tags, and the wave scale reads "waves N m."
+  - The labels are outlined in the panel colour so bars can't hide them.
 - **Timeline numbers:**
   - The header shows the exact wind, gusts and (on the water) waves at the selected time.
   - Under the chart, one column per 3-hour block (equal columns line up with the chart) shows the average wind, coloured by the worst rating in that block, the strongest gust, and on the water the highest waves.
