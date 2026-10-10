@@ -163,6 +163,16 @@ button{font:inherit;color:inherit}
 .tl-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
 .tl-title{font-family:var(--display);font-stretch:80%;font-weight:700;font-size:16px}
 .tl-time{display:block;font-family:var(--mono);font-weight:600;font-size:20px;line-height:1.15;font-variant-numeric:tabular-nums}
+.tl-vals{display:block;font-family:var(--mono);font-weight:400;font-stretch:100%;font-size:12px;color:var(--fg);margin-top:3px}
+.legend .lgnum,.legend .lgnum span{display:inline} /* plain sentence, not swatch + label */
+.legend .lgnum [hidden]{display:none}
+.tltable{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));margin-top:4px;font-family:var(--mono);font-size:11.5px;text-align:center;font-variant-numeric:tabular-nums}
+.tltable .c{padding:3px 0;border-radius:6px;line-height:1.35}
+.tltable .c.night{opacity:.45}
+.tltable .c.cur{background:var(--panel-2);box-shadow:inset 0 0 0 1px #3a4c75;opacity:1}
+.tltable b{display:block;font-weight:600}
+.tltable .g{display:block;color:var(--dim)}
+.tltable .w{display:block;color:#7fd3e6}
 .tl-sub{display:block;font-family:var(--body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--dim);margin-top:2px}
 .tl-head .tl-title{min-width:0}
 .nowbtn{flex:none;white-space:nowrap;border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer}
@@ -302,12 +312,13 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
 
   <section class="panel" aria-label="Time of day">
     <div class="tl-head">
-      <div class="tl-title" id="tlt"><span class="tl-time" id="tltime">—</span><span class="tl-sub" id="tlsub">Drag through the day</span></div>
+      <div class="tl-title" id="tlt"><span class="tl-time" id="tltime">—</span><span class="tl-sub" id="tlsub">Drag through the day</span><span class="tl-vals" id="tlvals"></span></div>
       <button class="nowbtn" id="nowbtn" type="button" aria-pressed="true">Now</button>
     </div>
     <div class="tlwrap" id="tlwrap" tabindex="0" role="slider" aria-label="Time of day" aria-valuemin="0" aria-valuemax="1440" aria-valuenow="0">
       <canvas id="tl"></canvas>
     </div>
+    <div class="tltable" id="tltable" aria-label="Wind, gusts and waves for each 3 hours"></div>
     <div class="twi" id="twi" aria-label="Jump to a twilight time"></div>
     <div class="legend">
       <span><i class="sw" style="background:var(--go)"></i>Calm</span>
@@ -315,6 +326,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <span><i class="sw" style="background:var(--nogo)"></i>Rough</span>
       <span id="lgw" hidden><i class="sw" style="background:#7fd3e6;height:2px"></i>Waves (right scale)</span>
       <span>Bars: sustained wind · ticks: gusts · faded: outside daylight</span>
+      <span class="lgnum">Numbers per 3 h: average wind, <span style="color:var(--dim)">strongest gust</span> (km/h)<span id="lgwn">, <span style="color:#7fd3e6">highest waves</span> (m)</span></span>
     </div>
     <p class="note" id="datanote"></p>
   </section>
@@ -675,7 +687,7 @@ function drawTL(){
     const lab=fmt(new Date(selT));c.font='600 11px "JetBrains Mono",monospace';const lw=c.measureText(lab).width+12,lx=xs+10+lw>W?xs-10-lw:xs+10;
     c.fillStyle='rgba(9,14,26,.88)';c.beginPath();c.roundRect?c.roundRect(lx,3,lw,16,8):c.rect(lx,3,lw,16);c.fill();
     c.fillStyle='#fff';c.textAlign='left';c.textBaseline='middle';c.fillText(lab,lx+6,11.5);c.textBaseline='alphabetic'}
-  drawMini(d0,span);
+  drawMini(d0,span);renderTlTable(d0,span,dawn,dusk);
   const tw=$('#tlwrap');const mins=Math.round((selT-d0)/MIN);tw.setAttribute('aria-valuemax',Math.round(span/MIN));tw.setAttribute('aria-valuenow',mins);tw.setAttribute('aria-valuetext',fmt(new Date(selT)));
 }
 /* Scrubbing on the scene itself, so the sky stays in view while the time changes:
@@ -708,6 +720,24 @@ scene.addEventListener('pointermove',e=>{
   if(!scrub){if(Math.abs(dx)<8||Math.abs(dx)<Math.abs(dy))return;scrub=true;try{scene.setPointerCapture(spid)}catch(_){}dismissHint()}
   setTime(st+dx/scene.clientWidth*6*HOUR)});
 ['pointerup','pointercancel'].forEach(n=>scene.addEventListener(n,()=>{sx=null;scrub=false}));
+/* Numbers under the chart, one column per 3-hour block (equal columns line up with the chart, which maps the day linearly):
+   average sustained wind coloured by the worst rating in the block, the strongest gust, and in water mode the highest waves.
+   Rebuilt only when the day, data, mode or limits change; dragging just moves the highlight. */
+let tlKey='';
+function renderTlTable(d0,span,dawn,dusk){
+  const el=$('#tltable'),key=`${d0}|${span}|${data&&data.fetched}|${marine&&marine.fetched}|${MODE}|${LIM.good}/${LIM.rough}`;
+  if(key!==tlKey){tlKey=key;let html='';
+    for(let k=0;k<8;k++){
+      const a=d0+k*span/8,b=a+span/8;let sum=0,n=0,gmax=null,wmax=null,worst=3;
+      for(let t=a+5*MIN;t<b;t+=10*MIN){const w=windAt(t);if(w){sum+=w.sus;n++;gmax=Math.max(gmax??0,w.gust);worst=Math.min(worst,status(w))}
+        const v=wavesOn()&&waveAt(t);if(v)wmax=Math.max(wmax??0,v.h)}
+      const col=worst===2?'var(--go)':worst===1?'var(--maybe)':worst===0?'var(--nogo)':'var(--dim)';
+      html+=`<div class="c${b<=dawn||a>=dusk?' night':''}"><b style="color:${col}">${n?Math.round(sum/n):'–'}</b><span class="g">${gmax!=null?Math.round(gmax):'–'}</span>${wavesOn()?`<span class="w">${wmax!=null?wmax.toFixed(1):'–'}</span>`:''}</div>`;
+    }
+    el.innerHTML=html;$('#lgwn').hidden=!wavesOn();
+  }
+  const cur=clamp(Math.floor((selT-d0)/span*8),0,7);el.querySelectorAll('.c').forEach((c,k)=>c.classList.toggle('cur',k===cur));
+}
 function setTime(t){follow=false;selT=clamp(t,dayStart(dayIdx),dayStart(dayIdx+1)-MIN);syncNow();drawTL();hudTick(true)}
 function syncNow(){const b=$('#nowbtn');b.setAttribute('aria-pressed',follow);b.textContent=follow?'Following now':'Jump to now'}
 let dragging=false;
@@ -728,6 +758,8 @@ function hudTick(force){
   const ph=phaseOf(a), am=azc<180, tw=a<6&&a>=-18;
   $('#phase').textContent=tw?`${am?'Morning':'Evening'} ${ph.toLowerCase()}`:ph;
   $('#tltime').textContent=fmt(d); // the timeline gets its own readout: the scene's clock is scrolled out of view down here
+  {const wv=windAt(selT),wz=wavesOn()&&waveAt(selT); // exact values at the selected time, for the timeline header
+   $('#tlvals').textContent=wv?`Wind ${Math.round(wv.sus)} · gusts ${Math.round(wv.gust)} km/h${wz?` · waves ${wz.h.toFixed(1)} m`:''}`:''}
   $('#tlsub').textContent=`${ph==='Blue hour'?`${am?'Morning':'Evening'} civil twilight, blue hour`:$('#phase').textContent} · sun ${a>=0?'':'−'}${Math.abs(a).toFixed(1)}°`;
   $('#alt').textContent=(Math.abs(a)<0.9?'Sun on the horizon':a>=0?`Sun ${a.toFixed(1)}° above the horizon`:`Sun ${Math.abs(a).toFixed(1)}° below the horizon`)+(ph==='Blue hour'?' · civil twilight':'');
   const cc=cloudAt(selT),pc=v=>Math.round(v*100);

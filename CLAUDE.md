@@ -95,6 +95,10 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - A horizontal drag on the sky nudges time. The full scene width is 6 hours, about a minute per pixel on a phone. Vertical drags still scroll the page (`touch-action: pan-y`).
   - The slim strip along the bottom of the scene maps the whole day and marks the six twilight moments.
   - The full timeline below stays as well, for the wind chart.
+- **Timeline numbers:**
+  - The header shows the exact wind, gusts and (on the water) waves at the selected time.
+  - Under the chart, one column per 3-hour block (equal columns line up with the chart) shows the average wind, coloured by the worst rating in that block, the strongest gust, and on the water the highest waves.
+  - The selected block is highlighted and night blocks are faded. Hourly numbers on every bar would be too cramped at phone width.
 
 ## Testing
 
