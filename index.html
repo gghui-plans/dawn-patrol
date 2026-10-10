@@ -73,8 +73,13 @@ button{font:inherit;color:inherit}
 .scene.mapmode canvas#map{display:block}
 .scene canvas#mapwind{display:none;z-index:1;pointer-events:none} /* above the map (later in the DOM); touches go through to it */
 .scene.mapmode canvas#mapwind{display:block}
-.wlegend{position:absolute;z-index:4;right:12px;top:104px;width:112px}
-.wlegend .bar{height:5px;border-radius:3px;background:linear-gradient(90deg,#628abe 0%,#56c4d6 16.7%,#60d68c 33.3%,#ecd65a 50%,#f49646 66.7%,#e8505a 91.7%,#c85ac8 100%)}
+.layertog{position:absolute;z-index:4;right:12px;top:100px;padding:2px;border-radius:999px;background:rgba(3,6,14,.55);border:1px solid rgba(255,255,255,.18)}
+.scene.mapmode .layertog{display:flex}
+.layertog button{border:0;background:transparent;color:#fff;font-size:11.5px;padding:3px 10px;border-radius:999px;cursor:pointer;opacity:.75}
+.layertog button[aria-pressed="true"]{background:rgba(255,255,255,.2);opacity:1;font-weight:600}
+.wlegend{position:absolute;z-index:4;right:12px;top:132px;width:112px}
+.wlegend .bar{height:5px;border-radius:3px}
+.wlegend .note{margin-top:4px;text-align:right;font-size:9px;line-height:1.3;color:rgba(255,255,255,.7)}
 .wlegend .lab{display:flex;justify-content:space-between;margin-top:2px;font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.7)}
 .scene.mapmode #sky,.scene.mapmode .scrim,.scene.mapmode .gauge,.scene.mapmode .facing,.scene.mapmode .hint{display:none}
 .mapui{display:none}
@@ -214,7 +219,11 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
     <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
     <div class="attrib mapui">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
-    <div class="wlegend mapui" aria-hidden="true"><div class="bar"></div><div class="lab"><span>0</span><span>20</span><span>40</span><span>60 km/h</span></div></div>
+    <div class="layertog mapui" role="group" aria-label="Map layer">
+      <button type="button" data-layer="wind" aria-pressed="true">Wind</button><button type="button" data-layer="waves" aria-pressed="false">Waves</button>
+    </div>
+    <div class="wlegend mapui" aria-hidden="true"><div class="bar" id="lgbar"></div><div class="lab" id="lglab"></div>
+      <div class="note" id="lgnote" hidden>Lines: wave direction<br><span style="color:#8cd7ff">Blue lines: swell</span></div></div>
     <div class="mapnote" id="mapnote" hidden></div>
     <div class="hud hud-time">
       <div class="clock" id="clock">6:55<small>am</small></div>
@@ -932,7 +941,7 @@ function frame(ts){
   if(camAz==null)camAz=target;else{let dd=((target-camAz+3*Math.PI)%(2*Math.PI))-Math.PI;camAz+=dd*Math.min(1,dt*3.5)}
   camAzDeg=((camAz/DEG)%360+360)%360;
   hudTick(false);
-  if(mapOn){if(mapDirty)drawMap();windStep();return} // the sky pauses while the map is showing
+  if(mapOn){if(mapLayer==='waves'&&Math.floor(selT/MIN)!==ovT)mapDirty=true;if(mapDirty)drawMap();mapAnimStep();return} // the sky pauses while the map is showing; wave colours follow the selected time
   if(!gl) return;
   if(dt>0&&dt<1){warm+=dt;ema=ema*0.95+dt*0.05;
     if(warm>1.5){
@@ -1000,14 +1009,25 @@ function tileAt(z,x,y,load){
   const k=`${z}/${x}/${y}`;let t=tiles.get(k);
   if(!t&&load){
     const cv=document.createElement('canvas');cv.width=cv.height=TILE;t={img:cv,ok:false};
-    const imgs=BASEMAP.layers.map(l=>{const im=new Image();im.src=BASEMAP.url(l,z,x,y);return im});
+    const imgs=BASEMAP.layers.map(l=>{const im=new Image();im.crossOrigin='anonymous';im.src=BASEMAP.url(l,z,x,y);return im}); // CORS: lets maskOf read pixels
     let left=imgs.length,baseOk=false;
     const settle=()=>{if(--left)return;if(!baseOk){tileErr++;mapDirty=true;return} // labels may fail; the base must not
       const g=cv.getContext('2d');imgs.forEach(im=>{if(im.complete&&im.naturalWidth)g.drawImage(im,0,0,TILE,TILE)});t.ok=true;tileOk++;mapDirty=true};
     imgs.forEach((im,i)=>{im.onload=()=>{if(!i)baseOk=true;settle()};im.onerror=settle});
-    tiles.set(k,t);if(tiles.size>300)tiles.delete(tiles.keys().next().value); // keep memory bounded
+    tiles.set(k,t);if(tiles.size>200)tiles.delete(tiles.keys().next().value); // keep memory bounded (tiles may hold a mask too)
   }
   return t;
+}
+// Water mask for a tile, built once when the wave layer needs it. On Esri Dark Gray, water is a flat near-black
+// (35,34,39) and land is grey (78,78,80); labels are lighter still, so they stay untinted and readable.
+let maskBroken=false;
+function maskOf(t){
+  if(t.mask!==undefined)return t.mask;
+  try{const d=t.img.getContext('2d').getImageData(0,0,TILE,TILE),a=d.data;
+    for(let i=0;i<a.length;i+=4){const water=a[i]+a[i+1]+a[i+2]<165;a[i]=a[i+1]=a[i+2]=255;a[i+3]=water?255:0}
+    const m=document.createElement('canvas');m.width=m.height=TILE;m.getContext('2d').putImageData(d,0,0);t.mask=m;
+  }catch(e){t.mask=null;maskBroken=true} // tiles not readable (CORS): wave colours fall back to an unmasked, fainter wash
+  return t.mask;
 }
 function drawMap(){
   mapDirty=false;const W=mapCv.clientWidth,H=mapCv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
@@ -1016,20 +1036,25 @@ function drawMap(){
   const c=mapCtx;c.setTransform(dpr,0,0,dpr,0,0);c.fillStyle='#0e1117';c.fillRect(0,0,W,H);
   const tz=clamp(Math.round(mapZ),0,18),s=2**(mapZ-tz),ts=TILE*s;
   const x0=lon2x(mapC.lon,tz)-W/2/s,y0=lat2y(mapC.lat,tz)-H/2/s;               // top-left corner, in level-tz pixels
+  const shown=[];
   for(let ty=Math.floor(y0/TILE);ty<=Math.floor((y0+H/s)/TILE);ty++)
     for(let tx=Math.floor(x0/TILE);tx<=Math.floor((x0+W/s)/TILE);tx++){
       const px=(tx*TILE-x0)*s,py=(ty*TILE-y0)*s,t=tileAt(tz,tx,ty,true);
-      if(t&&t.ok){c.drawImage(t.img,px,py,ts+0.5,ts+0.5);continue}
+      if(t&&t.ok){c.drawImage(t.img,px,py,ts+0.5,ts+0.5);shown.push({t,px,py,ts});continue}
       const p=tz>0&&tileAt(tz-1,tx>>1,ty>>1,false);                             // parent stands in while loading
       if(p&&p.ok){const q=p.img.width/2;c.drawImage(p.img,(tx&1)*q,(ty&1)*q,q,q,px,py,ts+0.5,ts+0.5)}
     }
+  if(mapLayer==='waves'){buildMask(shown,W,H,dpr);drawWaveColours(c,W,H,dpr,tz,s,x0,y0)}
   const mx=(lon2x(loc.lon,tz)-x0)*s,my=(lat2y(loc.lat,tz)-y0)*s;                 // the saved location
   c.beginPath();c.arc(mx,my,10,0,7);c.fillStyle='rgba(244,162,89,.22)';c.fill();
   c.beginPath();c.arc(mx,my,4.5,0,7);c.fillStyle='#f4a259';c.fill();c.lineWidth=1.5;c.strokeStyle='#fff';c.stroke();
   $('#recentre').hidden=Math.hypot(mx-W/2,my-H/2)<24&&Math.abs(mapZ-MAP_Z0)<0.25;
-  wctx.setTransform(1,0,0,1,0,0);wctx.clearRect(0,0,windCv.width,windCv.height); // the map moved: drop old trails
-  windDrawnKey='';updateMapNote();scheduleWind();
+  ovT=Math.floor(selT/MIN);updateMapNote();
+  const vk=`${mapC.lat}|${mapC.lon}|${mapZ}|${W}x${H}`;
+  if(vk!==mapViewKey){mapViewKey=vk;windDrawnKey='';scheduleGrid(); // only a real move clears trails and (once settled) checks the data grid;
+    wctx.setTransform(1,0,0,1,0,0);wctx.clearRect(0,0,windCv.width,windCv.height)} // time-only redraws must not keep resetting that timer
 }
+let mapViewKey='';
 function mapPan(dx,dy){const x=lon2x(mapC.lon,mapZ)-dx,y=clamp(lat2y(mapC.lat,mapZ)-dy,0,wpx(mapZ));mapC={lon:x2lon(x,mapZ),lat:y2lat(y,mapZ)};mapDirty=true}
 function mapZoomAt(px,py,dz){ // keep the point under the finger fixed
   const W=mapCv.clientWidth,H=mapCv.clientHeight,z1=clamp(mapZ+dz,MAP_ZMIN,MAP_ZMAX),k=2**(z1-mapZ);
@@ -1055,78 +1080,145 @@ $('#recentre').onclick=()=>{mapC={lat:loc.lat,lon:loc.lon};mapZ=MAP_Z0;mapDirty=
    Streaks: ~1 particle per 220 px², each drifting with the local wind (about 36 px/s at 20 km/h) and coloured by speed,
    with trails that fade each frame. With reduced motion, static arrows are drawn instead. */
 const windCv=$('#mapwind'), wctx=windCv.getContext('2d'), WN=7;
-let wgrids=[], wgrid=null, wstate='idle', wTimer=null, parts=[], wvec=null, wvecKey='', windDrawnKey='';
+let mapLayer=store.get('dp.layer','wind'), parts=[], windDrawnKey='', ovT=null, gTimer=null;
+const lerp=(a,i,k,f)=>a[i]==null||a[k]==null?null:a[i]+(a[k]-a[i])*f;
+const lerpAng=(a,i,k,f)=>a[i]==null||a[k]==null?null:a[i]+(((a[k]-a[i]+540)%360)-180)*f;
+// Two grid sources with one fetch/cache/sample path. Each node gives the values its layer draws, at the selected time.
+const GRID={
+  wind:{list:[],cur:null,state:'idle',key:'',vec:null,name:'wind',
+    url:(la,lo)=>`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
+    node:(P,i,k,f)=>{const s=lerp(P.wind_speed_10m,i,k,f),d=lerpAng(P.wind_direction_10m,i,k,f);if(s==null||d==null)return null;
+      return{u:-s*Math.sin(d*DEG),v:-s*Math.cos(d*DEG),s}}},                        // u east, v north: where it blows to
+  // Waves use the marine model's default cell selection: unmodelled lakes (e.g. Lake Simcoe) come back null and stay
+  // uncoloured; points just inland take the nearest offshore cell, which carries colour to the shoreline under the mask.
+  waves:{list:[],cur:null,state:'idle',key:'',vec:null,name:'wave',
+    url:(la,lo)=>`https://marine-api.open-meteo.com/v1/marine?latitude=${la}&longitude=${lo}&hourly=wave_height,wave_direction,swell_wave_height,swell_wave_direction&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
+    node:(P,i,k,f)=>{const h=lerp(P.wave_height,i,k,f),d=lerpAng(P.wave_direction,i,k,f);if(h==null||d==null)return null;
+      const sh=lerp(P.swell_wave_height,i,k,f)||0,sd=lerpAng(P.swell_wave_direction,i,k,f);
+      return{h,ux:-Math.sin(d*DEG),uy:-Math.cos(d*DEG),sh,sux:sd==null?0:-Math.sin(sd*DEG),suy:sd==null?0:-Math.cos(sd*DEG)}}}}; // directions are "from"
 const WSTOPS=[[0,[98,138,190]],[10,[86,196,214]],[20,[96,214,140]],[30,[236,214,90]],[40,[244,150,70]],[55,[232,80,90]],[75,[200,90,200]]];
-const WCOLS=Array.from({length:41},(_,k)=>{const s=k*2;let i=1;while(i<WSTOPS.length-1&&s>WSTOPS[i][0])i++; // a colour per 2 km/h
-  const [s0,c0]=WSTOPS[i-1],[s1,c1]=WSTOPS[i],f=clamp((s-s0)/(s1-s0),0,1);return`rgb(${c0.map((v,j)=>Math.round(v+(c1[j]-v)*f))})`});
+const HSTOPS=[[0,[40,80,150]],[0.25,[45,130,190]],[0.5,[50,175,200]],[1,[80,205,140]],[1.5,[225,210,90]],[2.5,[240,140,60]],[4,[220,70,90]],[6,[180,80,200]]];
+const ramp=(stops,v)=>{let i=1;while(i<stops.length-1&&v>stops[i][0])i++;const [v0,c0]=stops[i-1],[v1,c1]=stops[i],f=clamp((v-v0)/(v1-v0),0,1);return c0.map((x,j)=>Math.round(x+(c1[j]-x)*f))};
+const WCOLS=Array.from({length:41},(_,k)=>`rgb(${ramp(WSTOPS,k*2)})`); // a colour per 2 km/h
 const wcolIdx=s=>Math.min(40,Math.round(s/2));
+const LEGEND={wind:{bar:'linear-gradient(90deg,#628abe 0%,#56c4d6 16.7%,#60d68c 33.3%,#ecd65a 50%,#f49646 66.7%,#e8505a 91.7%,#c85ac8 100%)',lab:['0','20','40','60 km/h']},
+  waves:{bar:'linear-gradient(90deg,rgb(40,80,150) 0%,rgb(45,130,190) 6.25%,rgb(50,175,200) 12.5%,rgb(80,205,140) 25%,rgb(225,210,90) 37.5%,rgb(240,140,60) 62.5%,rgb(220,70,90) 100%)',lab:['0','1','2','3','4 m']}};
 function viewBounds(){const W=mapCv.clientWidth,H=mapCv.clientHeight,cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);
   return{n:y2lat(cy-H/2,mapZ),s:y2lat(cy+H/2,mapZ),w:x2lon(cx-W/2,mapZ),e:x2lon(cx+W/2,mapZ)}}
 const covers=(g,b)=>b.n<=g.n&&b.s>=g.s&&b.w>=g.w&&b.e<=g.e&&g.e-g.w<=(b.e-b.w)*3; // and not >3× coarser than the view
-function pickGrid(){const b=viewBounds(),now=Date.now();wgrids=wgrids.filter(g=>now-g.fetched<HOUR&&g.loc===loc);return wgrids.find(g=>covers(g,b))||null}
-function scheduleWind(){clearTimeout(wTimer);wTimer=setTimeout(ensureWind,600)}
-async function ensureWind(){
-  if(!mapOn||!mapC)return;const have=pickGrid();if(have){wgrid=have;return}
+function pickGrid(G){const b=viewBounds(),now=Date.now();G.list=G.list.filter(g=>now-g.fetched<HOUR&&g.loc===loc);return G.list.find(g=>covers(g,b))||null}
+function scheduleGrid(){clearTimeout(gTimer);gTimer=setTimeout(()=>ensureGrid(mapLayer),600)}
+async function ensureGrid(kind){
+  if(!mapOn||!mapC)return;const G=GRID[kind],have=pickGrid(G);if(have){if(G.cur!==have){G.cur=have;mapDirty=true}return}
+  if(G.inflight){G.again=true;return}G.inflight=true;
   const b=viewBounds(),py=(b.n-b.s)*0.25,px=(b.e-b.w)*0.25,g={n:Math.min(b.n+py,85),s:Math.max(b.s-py,-85),w:b.w-px,e:b.e+px,loc};
   const lats=[],lons=[];
   for(let j=0;j<WN;j++)for(let i=0;i<WN;i++){lats.push((g.n-(g.n-g.s)*j/(WN-1)).toFixed(3));lons.push(((g.w+(g.e-g.w)*i/(WN-1)+540)%360-180).toFixed(3))}
-  wstate='loading';updateMapNote();
+  G.state='loading';updateMapNote();
   try{
-    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`);
-    if(!r.ok)throw new Error(r.status);let j=await r.json();if(!Array.isArray(j))j=[j];
-    Object.assign(g,{start:j[0].hourly.time[0]*1000,spd:j.map(p=>p.hourly.wind_speed_10m),dir:j.map(p=>p.hourly.wind_direction_10m),fetched:Date.now()});
-    wgrids.unshift(g);wgrids.length=Math.min(wgrids.length,6);wstate='ok';wgrid=pickGrid()||g;
-  }catch(e){wstate='failed'}
-  windDrawnKey='';updateMapNote();
+    const r=await fetch(G.url(lats,lons));if(!r.ok)throw new Error(r.status);let j=await r.json();if(!Array.isArray(j))j=[j];
+    Object.assign(g,{start:j[0].hourly.time[0]*1000,len:j[0].hourly.time.length,pts:j.map(p=>p.hourly),fetched:Date.now()});
+    G.list.unshift(g);G.list.length=Math.min(G.list.length,6);G.state='ok';G.cur=pickGrid(G)||g;
+  }catch(e){G.state='failed'}
+  G.inflight=false;windDrawnKey='';mapDirty=true;updateMapNote();
+  if(G.again){G.again=false;ensureGrid(kind)} // the view moved while this was loading
 }
-function windNodes(){ // per-node wind at the selected time: {u: east, v: north, s: speed} toward which it blows
-  if(!wgrid)return null;const key=`${selT}|${wgrid.fetched}`;if(key===wvecKey)return wvec;wvecKey=key;
-  const x=(selT-wgrid.start)/HOUR,n=wgrid.spd[0].length;if(x<0||x>n-1)return wvec=null;
-  const i=Math.floor(x),f=x-i,k=Math.min(i+1,n-1);
-  return wvec=wgrid.spd.map((s,p)=>{const d1=wgrid.dir[p][i],d2=wgrid.dir[p][k];if(s[i]==null||s[k]==null||d1==null||d2==null)return null;
-    const sp=s[i]+(s[k]-s[i])*f,d=(d1+(((d2-d1+540)%360)-180)*f)*DEG;return{u:-sp*Math.sin(d),v:-sp*Math.cos(d),s:sp}});
+function nodesOf(kind){ // node values at the selected time, cached per (time, grid)
+  const G=GRID[kind],g=G.cur;if(!g)return null;const key=`${selT}|${g.fetched}`;if(key===G.key)return G.vec;G.key=key;
+  const x=(selT-g.start)/HOUR;if(x<0||x>g.len-1)return G.vec=null;
+  const i=Math.floor(x),f=x-i,k=Math.min(i+1,g.len-1);return G.vec=g.pts.map(P=>G.node(P,i,k,f));
 }
-function windAtPx(px,py,nodes,W,H,cx,cy){
+function sampleAt(g,nodes,keys,px,py,W,H,cx,cy){ // bilinear across the 4 surrounding nodes; null if any is missing
   const lon=x2lon(cx+px-W/2,mapZ),lat=y2lat(cy+py-H/2,mapZ);
-  const fx=(lon-wgrid.w)/(wgrid.e-wgrid.w)*(WN-1),fy=(wgrid.n-lat)/(wgrid.n-wgrid.s)*(WN-1);
+  const fx=(lon-g.w)/(g.e-g.w)*(WN-1),fy=(g.n-lat)/(g.n-g.s)*(WN-1);
   if(fx<0||fy<0||fx>WN-1||fy>WN-1)return null;
   const i=Math.min(Math.floor(fx),WN-2),j=Math.min(Math.floor(fy),WN-2),a=fx-i,b=fy-j;
   const q0=nodes[j*WN+i],q1=nodes[j*WN+i+1],q2=nodes[(j+1)*WN+i],q3=nodes[(j+1)*WN+i+1];if(!q0||!q1||!q2||!q3)return null;
-  const L=k=>(q0[k]*(1-a)+q1[k]*a)*(1-b)+(q2[k]*(1-a)+q3[k]*a)*b;return{u:L('u'),v:L('v'),s:L('s')};
+  const o={};for(const k of keys)o[k]=(q0[k]*(1-a)+q1[k]*a)*(1-b)+(q2[k]*(1-a)+q3[k]*a)*b;return o;
+}
+/* Wave colours: node colours on a 7×7 canvas, scaled up smoothly over the grid's footprint, then cut to the water mask
+   (one full-view mask composed from the visible tiles' masks) and laid over the map at half opacity. */
+const maskCv=document.createElement('canvas'), maskCtx=maskCv.getContext('2d'), ovCv=document.createElement('canvas'), ovCtx=ovCv.getContext('2d');
+const nodeCv=document.createElement('canvas');nodeCv.width=nodeCv.height=WN;
+let maskReady=false;
+function buildMask(shown,W,H,dpr){
+  if(maskCv.width!==mapCv.width||maskCv.height!==mapCv.height){maskCv.width=mapCv.width;maskCv.height=mapCv.height}
+  const m=maskCtx;m.setTransform(dpr,0,0,dpr,0,0);m.clearRect(0,0,W,H);maskReady=false;
+  for(const L of shown){const k=maskOf(L.t);if(k){m.drawImage(k,L.px,L.py,L.ts+0.5,L.ts+0.5);maskReady=true}}
+}
+function drawWaveColours(c,W,H,dpr,tz,s,x0,y0){
+  const g=GRID.waves.cur,nodes=nodesOf('waves');if(!g||!nodes)return;
+  const nc=nodeCv.getContext('2d'),img=nc.createImageData(WN,WN);
+  nodes.forEach((n,k)=>{if(n)img.data.set([...ramp(HSTOPS,n.h),255],k*4)});nc.putImageData(img,0,0);
+  if(ovCv.width!==mapCv.width||ovCv.height!==mapCv.height){ovCv.width=mapCv.width;ovCv.height=mapCv.height}
+  const o=ovCtx;o.setTransform(dpr,0,0,dpr,0,0);o.globalCompositeOperation='source-over';o.clearRect(0,0,W,H);
+  const X=lon=>(lon2x(lon,tz)-x0)*s,Y=lat=>(lat2y(lat,tz)-y0)*s,xw=X(g.w),yn=Y(g.n),cw=(X(g.e)-xw)/(WN-1),ch=(Y(g.s)-yn)/(WN-1);
+  o.imageSmoothingEnabled=true;o.imageSmoothingQuality='high';o.drawImage(nodeCv,xw-cw/2,yn-ch/2,cw*WN,ch*WN); // node centres on node positions
+  if(maskReady&&!maskBroken){o.setTransform(1,0,0,1,0,0);o.globalCompositeOperation='destination-in';o.drawImage(maskCv,0,0);o.globalCompositeOperation='source-over'}
+  c.save();c.setTransform(1,0,0,1,0,0);c.globalAlpha=maskBroken?0.3:0.5;c.drawImage(ovCv,0,0);c.restore();
 }
 const spawn=(p,W,H)=>{p.x=Math.random()*W;p.y=Math.random()*H;p.age=0;p.max=40+Math.random()*70;return p};
-function windStep(){
+function arrow(c,x,y,ux,uy,L){const tx=x+ux*L/2,ty=y+uy*L/2;c.moveTo(x-ux*L/2,y-uy*L/2);c.lineTo(tx,ty);c.moveTo(tx,ty);c.lineTo(tx-ux*5-uy*3.5,ty-uy*5+ux*3.5);c.moveTo(tx,ty);c.lineTo(tx-ux*5+uy*3.5,ty-uy*5-ux*3.5)}
+/* Animation on the overlay canvas. Wind: streaks drifting with the local wind (about 36 px/s at 20 km/h), coloured by
+   speed, ~1 per 220 px². Waves: slower white lines travelling the way the waves go, plus pale blue lines for swell where
+   it is at least 0.2 m, cut to the water mask each frame. Trails fade each frame; moving the map clears them.
+   With reduced motion, static arrows instead, redrawn only when something changes. */
+function mapAnimStep(){
   const W=windCv.clientWidth,H=windCv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
   if(windCv.width!==Math.round(W*dpr)||windCv.height!==Math.round(H*dpr)){windCv.width=Math.round(W*dpr);windCv.height=Math.round(H*dpr);parts=[];windDrawnKey=''}
-  const c=wctx,nodes=windNodes(),cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);c.setTransform(dpr,0,0,dpr,0,0);
-  if(reduce){ // static arrows, redrawn only when something changes
-    const key=`${wvecKey}|${cx}|${cy}|${mapZ}|${W}x${H}`;if(key===windDrawnKey)return;windDrawnKey=key;c.clearRect(0,0,W,H);if(!nodes)return;
-    c.lineWidth=1.5;for(let y=24;y<H;y+=44)for(let x=24;x<W;x+=44){const w=windAtPx(x,y,nodes,W,H,cx,cy);if(!w||w.s<0.5)continue;
-      const L=8+Math.min(w.s,50)*0.3,ux=w.u/w.s,uy=-w.v/w.s,tx=x+ux*L/2,ty=y+uy*L/2;c.strokeStyle=WCOLS[wcolIdx(w.s)];c.beginPath();
-      c.moveTo(x-ux*L/2,y-uy*L/2);c.lineTo(tx,ty);c.moveTo(tx,ty);c.lineTo(tx-ux*5-uy*3.5,ty-uy*5+ux*3.5);c.moveTo(tx,ty);c.lineTo(tx-ux*5+uy*3.5,ty-uy*5-ux*3.5);c.stroke()}
-    return}
-  c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,0.085)';c.fillRect(0,0,W,H);c.globalCompositeOperation='source-over'; // fade trails
+  const c=wctx,waves=mapLayer==='waves',G=GRID[mapLayer],g=G.cur,nodes=nodesOf(mapLayer),cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);
+  const keys=waves?['h','ux','uy','sh','sux','suy']:['u','v','s'],at=(x,y)=>sampleAt(g,nodes,keys,x,y,W,H,cx,cy);
+  const clip=()=>{if(waves&&maskReady&&!maskBroken){c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='destination-in';c.drawImage(maskCv,0,0);c.globalCompositeOperation='source-over';c.setTransform(dpr,0,0,dpr,0,0)}};
+  c.setTransform(dpr,0,0,dpr,0,0);
+  if(reduce){
+    const key=`${mapLayer}|${G.key}|${cx}|${cy}|${mapZ}|${W}x${H}`;if(key===windDrawnKey)return;windDrawnKey=key;c.clearRect(0,0,W,H);if(!nodes)return;
+    c.lineWidth=1.5;
+    for(let y=24;y<H;y+=44)for(let x=24;x<W;x+=44){const w=at(x,y);if(!w)continue;
+      if(waves){c.strokeStyle='rgba(255,255,255,.8)';c.beginPath();arrow(c,x,y,w.ux,-w.uy,14);c.stroke();
+        if(w.sh>=0.2){c.strokeStyle='rgba(140,215,255,.9)';c.beginPath();arrow(c,x+10,y+10,w.sux,-w.suy,12);c.stroke()}}
+      else if(w.s>=0.5){c.strokeStyle=WCOLS[wcolIdx(w.s)];c.beginPath();arrow(c,x,y,w.u/w.s,-w.v/w.s,8+Math.min(w.s,50)*0.3);c.stroke()}}
+    clip();return}
+  c.globalCompositeOperation='destination-out';c.fillStyle=`rgba(0,0,0,${waves?0.06:0.085})`;c.fillRect(0,0,W,H);c.globalCompositeOperation='source-over';
   if(!nodes)return;
-  const want=Math.min(1200,Math.round(W*H/220));while(parts.length<want)parts.push(spawn({},W,H));parts.length=want;
-  const paths=new Map();c.lineWidth=1.25;c.lineCap='round';
+  const want=waves?Math.min(700,Math.round(W*H/420)):Math.min(1200,Math.round(W*H/220));
+  while(parts.length<want){const p=spawn({},W,H);p.k=parts.length%3===2?'s':'w';parts.push(p)}parts.length=want;
+  const paths=new Map();c.lineCap='round';
   for(const p of parts){
-    const w=p.age++<p.max&&windAtPx(p.x,p.y,nodes,W,H,cx,cy);if(!w){spawn(p,W,H);continue}
-    const nx=p.x+w.u*0.06,ny=p.y-w.v*0.06,ci=wcolIdx(w.s);let path=paths.get(ci);if(!path)paths.set(ci,path=new Path2D());
+    const w=p.age++<p.max&&at(p.x,p.y);if(!w){spawn(p,W,H);continue}
+    let nx,ny,band;
+    if(!waves){nx=p.x+w.u*0.06;ny=p.y-w.v*0.06;band=wcolIdx(w.s)}
+    else if(p.k==='s'){if(w.sh<0.2){spawn(p,W,H);continue}const m=Math.hypot(w.sux,w.suy)||1,sp=0.45+0.12*Math.min(w.sh,3);nx=p.x+w.sux/m*sp;ny=p.y-w.suy/m*sp;band='s'}
+    else{const m=Math.hypot(w.ux,w.uy)||1,sp=0.35+0.15*Math.min(w.h,3);nx=p.x+w.ux/m*sp;ny=p.y-w.uy/m*sp;band='w'}
+    let path=paths.get(band);if(!path)paths.set(band,path=new Path2D());
     path.moveTo(p.x,p.y);path.lineTo(nx,ny);p.x=nx;p.y=ny;if(nx<0||ny<0||nx>W||ny>H)spawn(p,W,H);
   }
-  paths.forEach((path,ci)=>{c.strokeStyle=WCOLS[ci];c.stroke(path)}); // one stroke per colour band
+  paths.forEach((path,band)=>{c.lineWidth=waves?1:1.25;c.strokeStyle=band==='w'?'rgba(255,255,255,.6)':band==='s'?'rgba(140,215,255,.8)':WCOLS[band];c.stroke(path)});
+  clip();
 }
 function updateMapNote(){
-  const t=tileErr>0&&tileOk===0?'Map tiles didn’t load. Check your connection.':!wgrid&&wstate==='failed'?'The wind map didn’t load.'
-    :!wgrid&&wstate==='loading'?'Loading wind…':wgrid&&!windNodes()?'No wind forecast for this time.':'';
+  const G=GRID[mapLayer],n=G.cur&&nodesOf(mapLayer);
+  const t=tileErr>0&&tileOk===0?'Map tiles didn’t load. Check your connection.'
+    :!G.cur&&G.state==='failed'?`The ${G.name} map didn’t load.`:!G.cur&&G.state==='loading'?`Loading ${G.name==='wind'?'wind':'waves'}…`
+    :G.cur&&!n?`No ${G.name} forecast for this time.`:n&&!n.some(Boolean)?'No wave forecast for this area.':'';
   const m=$('#mapnote');m.textContent=t;m.hidden=!t;
 }
+let layerPref=mapLayer;
+function setLayer(l){layerPref=l;store.set('dp.layer',l);applyLayer()} // the viewer's choice is remembered...
+function applyLayer(){ // ...but land mode shows wind only, and returns to the choice on the water
+  const l=layerPref==='waves'&&wavesOn()?'waves':'wind';
+  mapLayer=l;$('.layertog').hidden=!wavesOn();
+  document.querySelectorAll('.layertog button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.layer===l));
+  const L=LEGEND[l];$('#lgbar').style.background=L.bar;$('#lglab').innerHTML=L.lab.map(x=>`<span>${x}</span>`).join('');$('#lgnote').hidden=l!=='waves';
+  parts=[];windDrawnKey='';wctx.setTransform(1,0,0,1,0,0);wctx.clearRect(0,0,windCv.width,windCv.height);mapDirty=true;updateMapNote();scheduleGrid();
+}
+document.querySelectorAll('.layertog button').forEach(b=>b.onclick=()=>setLayer(b.dataset.layer));
 function setView(v){
-  mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;if(mapOn)setTimeout(ensureWind,0);
+  mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;if(mapOn)setTimeout(()=>ensureGrid(mapLayer),0);
   document.querySelectorAll('.viewtog button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));
   document.querySelectorAll('.dots i').forEach((d,k)=>d.classList.toggle('on',k===(mapOn?1:0)));
 }
 document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+applyLayer();
 
 /* ---------- settings ---------- */
 function renderLoc(){
@@ -1190,7 +1282,7 @@ function renderLim(){$('#rgood').value=LIM.good;$('#rrough').value=LIM.rough;$('
 const saveLim=()=>store.set('dp.lims',LIMS);
 $('#rgood').oninput=e=>{LIM.good=+e.target.value;if(LIM.rough<LIM.good+3)LIM.rough=LIM.good+3;saveLim();renderLim();renderVerdict();drawTL()};
 $('#rrough').oninput=e=>{LIM.rough=+e.target.value;if(LIM.good>LIM.rough-3)LIM.good=LIM.rough-3;saveLim();renderLim();renderVerdict();drawTL()};
-function setMode(m){MODE=m;LIM=LIMS[m];store.set('dp.mode',m);renderLim();renderData();renderVerdict();drawTL();hudTick(true)}
+function setMode(m){MODE=m;LIM=LIMS[m];store.set('dp.mode',m);renderLim();renderData();renderVerdict();drawTL();hudTick(true);applyLayer()}
 document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 
 /* ---------- boot ---------- */

@@ -29,6 +29,11 @@ It is a personal project. The owner opens it from a home-screen icon to check th
     - **Streaks:** about 1 particle per 220 px², each drifting with the local wind (about 36 px/s at 20 km/h). They're coloured by speed with a legend under the credit, and their trails fade each frame. Moving the map clears the trails.
     - **Reduced motion:** static arrows instead.
     - **Status:** the centre note says "Loading wind…", "The wind map didn't load" or "No wind forecast for this time" when relevant.
+  - **Wave layer** (the Wind / Waves switch; hidden in land mode, and the viewer's choice is remembered for when they're back on the water):
+    - **Data:** a 7×7 marine grid for the view, using the same fetch, cache and sampling path as the wind (the `GRID` table). It uses the marine model's default cell selection, so unmodelled lakes such as Lake Simcoe return no data and stay uncoloured, while points just inland take the nearest offshore cell.
+    - **Colours:** node colours are smoothly scaled up and cut to a water mask taken from the tiles themselves. Esri Dark Gray water is a flat (35,34,39) and land (78,78,80); labels count as land, so they stay readable. Tiles load with `crossOrigin` so their pixels can be read. If they can't be read, the colours fall back to a fainter, unmasked wash.
+    - **Direction:** white lines drift the way the waves travel, and pale blue lines show swell where it's at least 0.2 m. Both are clipped to water every frame.
+    - **Following the time:** the colours redraw once per minute of selected-time change. Only real map moves restart the grid-settle timer; time-only redraws resetting it once stopped the wave fetch from ever starting.
 - **Sky renderer.** A WebGL1 fragment shader draws the scene.
   - Physically based single-scattering atmosphere: Rayleigh and Mie scattering, with an Earth-shadow test so the sky darkens correctly as the sun drops below the horizon.
   - Added on top: a twilight "fill" term and a horizon glow toward the sun, because single scattering alone makes twilight too dark.
@@ -128,7 +133,7 @@ A Windy-style map as a second view in the top scene, wave data, and two usage mo
 2. ~~Two modes, with land at 35 / 50 km/h (the owner's choice).~~ Done.
 3. ~~Map shell: toggle and dots, tiles, pan and zoom, recentre, location marker, credits. Pause the WebGL sky while the map shows.~~ Done.
 4. ~~Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.~~ Done.
-5. Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.
+5. ~~Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.~~ Done, including the direction lines below.
    - **Wave direction**, as Windy shows it: slow-moving lines travelling the way the combined waves go, drawn lighter than the wind streaks so the layers can't be confused.
    - Swell direction appears only when swell is at least 0.2 m, the same rule as the HUD.
    - With reduced motion, show static arrows instead.
