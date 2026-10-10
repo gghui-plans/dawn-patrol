@@ -87,8 +87,9 @@ button{font:inherit;color:inherit}
 /* Map view: frosted dark cards behind the overlay text, so it reads over streaks, colours and place names.
    The sky view stays unboxed to keep the photographic look. */
 .scene.mapmode .hud-time,.scene.mapmode .hud-wind>div:first-child,.scene.mapmode .mapcard{
-  background:rgba(9,14,26,.66);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
-  border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 10px;text-shadow:none}
+  background:rgba(9,14,26,.4);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:7px 10px;text-shadow:0 1px 4px rgba(0,0,0,.75)} /* light enough to see the map; blur + shadow keep text legible */
+.scene.mapmode .phase{font-size:15px;margin-top:4px}
 .scene.mapmode .mapcard{display:flex;flex-direction:column;gap:7px;position:absolute;z-index:4;right:12px;top:52px;width:138px;box-sizing:border-box}
 .scene.mapmode .hud-time{right:auto;left:12px;max-width:calc(100% - 24px - 138px - 8px);box-sizing:border-box}
 .scene.mapmode .clock{font-size:clamp(34px,9vw,46px)}
