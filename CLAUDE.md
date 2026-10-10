@@ -21,6 +21,9 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - **Gestures:** one finger pans and two fingers pinch-zoom. On desktop, ctrl+scroll (or trackpad pinch) and double-click zoom.
   - **Controls:** a Recentre button appears once you've moved away. The time strip works in both views.
   - **Drawing:** the map redraws only when something changes, and the WebGL sky pauses while it shows.
+  - **Legibility:** overlay text sits on frosted dark panels (time, wind readout, and one panel holding the layer switch, legend and credit), so it reads over streaks, colours and place names.
+    - The sun-angle and cloud lines are hidden on the map; they stay in the sky view.
+    - The sky view stays unboxed to keep the photographic look.
   - **Tile provider:** Esri works without a key for personal, non-commercial use, and the credit line ("Esri, HERE, Garmin, © OpenStreetMap contributors") must stay. CARTO, the first choice, now watermarks keyless tiles. Stadia (free account, domain registered) is the next fallback. Change the provider in `BASEMAP` and the `.attrib` credit.
   - **Commercial use** would need an ArcGIS account and key (or Stadia Starter), plus a paid Open-Meteo plan, hosting other than GitHub Pages, and removing `previewData()`.
   - **Wind layer:** one Open-Meteo request for a 7×7 grid (49 points) covering the view plus a 25% margin, fetched once panning or zooming has settled (600 ms).

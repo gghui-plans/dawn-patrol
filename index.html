@@ -73,20 +73,30 @@ button{font:inherit;color:inherit}
 .scene.mapmode canvas#map{display:block}
 .scene canvas#mapwind{display:none;z-index:1;pointer-events:none} /* above the map (later in the DOM); touches go through to it */
 .scene.mapmode canvas#mapwind{display:block}
-.layertog{position:absolute;z-index:4;right:12px;top:100px;padding:2px;border-radius:999px;background:rgba(3,6,14,.55);border:1px solid rgba(255,255,255,.18)}
+.layertog{align-self:flex-end;padding:2px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18)}
 .scene.mapmode .layertog{display:flex}
 .layertog button{border:0;background:transparent;color:#fff;font-size:11.5px;padding:3px 10px;border-radius:999px;cursor:pointer;opacity:.75}
 .layertog button[aria-pressed="true"]{background:rgba(255,255,255,.2);opacity:1;font-weight:600}
-.wlegend{position:absolute;z-index:4;right:12px;top:132px;width:112px}
+.wlegend{width:100%}
 .wlegend .bar{height:5px;border-radius:3px}
 .wlegend .note{margin-top:4px;text-align:right;font-size:9px;line-height:1.3;color:rgba(255,255,255,.7)}
 .wlegend .lab{display:flex;justify-content:space-between;margin-top:2px;font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.7)}
 .scene.mapmode #sky,.scene.mapmode .scrim,.scene.mapmode .gauge,.scene.mapmode .facing,.scene.mapmode .hint{display:none}
 .mapui{display:none}
 .scene.mapmode .mapui{display:block}
-.mapbtn{position:absolute;z-index:4;right:12px;bottom:48px;border:1px solid rgba(255,255,255,.25);background:rgba(3,6,14,.7);color:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}
+/* Map view: frosted dark cards behind the overlay text, so it reads over streaks, colours and place names.
+   The sky view stays unboxed to keep the photographic look. */
+.scene.mapmode .hud-time,.scene.mapmode .hud-wind>div:first-child,.scene.mapmode .mapcard{
+  background:rgba(9,14,26,.66);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 10px;text-shadow:none}
+.scene.mapmode .mapcard{display:flex;flex-direction:column;gap:7px;position:absolute;z-index:4;right:12px;top:52px;width:138px;box-sizing:border-box}
+.scene.mapmode .hud-time{right:auto;left:12px;max-width:calc(100% - 24px - 138px - 8px);box-sizing:border-box}
+.scene.mapmode .clock{font-size:clamp(34px,9vw,46px)}
+.scene.mapmode #alt,.scene.mapmode #cloudl{display:none} /* sky details; still shown in the sky view */
+.scene.mapmode .hud-wind{left:12px}
+.mapbtn{position:absolute;z-index:4;right:12px;bottom:118px;border:1px solid rgba(255,255,255,.25);background:rgba(3,6,14,.7);color:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}
 .scene:not(.mapmode) .mapbtn{display:none}
-.attrib{position:absolute;z-index:4;right:12px;top:56px;max-width:112px;text-align:right;line-height:1.3;font-size:9.5px;color:rgba(255,255,255,.6)} /* where the sun gauge sits in sky view */
+.attrib{text-align:right;line-height:1.3;font-size:8.5px;color:rgba(255,255,255,.6)}
 .attrib a{color:inherit}
 .mapnote{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.7);color:#fff;white-space:nowrap}
 .scene:not(.mapmode) .mapnote{display:none}
@@ -218,12 +228,14 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     </div>
     <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
     <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
-    <div class="attrib mapui">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
-    <div class="layertog mapui" role="group" aria-label="Map layer">
-      <button type="button" data-layer="wind" aria-pressed="true">Wind</button><button type="button" data-layer="waves" aria-pressed="false">Waves</button>
+    <div class="mapcard mapui">
+      <div class="layertog" role="group" aria-label="Map layer">
+        <button type="button" data-layer="wind" aria-pressed="true">Wind</button><button type="button" data-layer="waves" aria-pressed="false">Waves</button>
+      </div>
+      <div class="wlegend" aria-hidden="true"><div class="bar" id="lgbar"></div><div class="lab" id="lglab"></div>
+        <div class="note" id="lgnote" hidden>Lines: wave direction<br><span style="color:#8cd7ff">Blue lines: swell</span></div></div>
+      <div class="attrib">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
     </div>
-    <div class="wlegend mapui" aria-hidden="true"><div class="bar" id="lgbar"></div><div class="lab" id="lglab"></div>
-      <div class="note" id="lgnote" hidden>Lines: wave direction<br><span style="color:#8cd7ff">Blue lines: swell</span></div></div>
     <div class="mapnote" id="mapnote" hidden></div>
     <div class="hud hud-time">
       <div class="clock" id="clock">6:55<small>am</small></div>
