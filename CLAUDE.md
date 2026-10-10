@@ -38,7 +38,7 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - **Wave layer** (the Wind / Waves switch; hidden in land mode, and the viewer's choice is remembered for when they're back on the water):
     - **Data:** a 7×7 marine grid for the view, using the same fetch, cache and sampling path as the wind (the `GRID` table). It uses the marine model's default cell selection, so unmodelled lakes such as Lake Simcoe return no data and stay uncoloured, while points just inland take the nearest offshore cell.
     - **Colours:** node colours are smoothly scaled up and cut to a water mask taken from the tiles themselves. Esri Dark Gray water is a flat (35,34,39) and land (78,78,80); labels count as land, so they stay readable. Tiles load with `crossOrigin` so their pixels can be read. If they can't be read, the colours fall back to a fainter, unmasked wash.
-    - **Direction:** white lines drift the way the waves travel, and pale blue lines show swell where it's at least 0.2 m. Both are clipped to water every frame.
+    - **Direction:** white lines drift the way the waves travel, clipped to water every frame. There's no swell display, since ECMWF's free feed has none (see Wave data).
     - **Following the time:** the colours redraw once per minute of selected-time change. Only real map moves restart the grid-settle timer; time-only redraws resetting it once stopped the wave fetch from ever starting.
 - **Sky renderer.** A WebGL1 fragment shader draws the scene.
   - Physically based single-scattering atmosphere: Rayleigh and Mie scattering, with an Earth-shadow test so the sky darkens correctly as the sun drops below the horizon.
@@ -62,12 +62,13 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - While the first fetch is in flight, the UI shows a loading state, not preview data.
   - If the fetch fails, `previewData()` supplies a fixed Toronto estimate pinned to Oct 9–11 2026, and the UI labels it as preview data. Days outside those dates show no wind.
   - It refetches when the forecast is over 30 minutes old or didn't load. This is checked every minute and whenever the app returns to the foreground. If a refresh fails, the app keeps the last live forecast and flags it as possibly out of date. The day tabs roll over at midnight.
-- **Wave data** comes from the Open-Meteo Marine API, using `best_match` (on Lake Ontario that's MeteoFrance MFWAM, about an 8 km grid). It fetches 3 days of hourly wave height, direction and period, and swell height, period and direction, alongside the wind.
+- **Wave data** comes from the Open-Meteo Marine API, pinned to **ECMWF WAM** (`models=ecmwf_wam`, 9 km grid, hourly), the model Windy uses for waves. It fetches 3 days of hourly wave height, direction and period, alongside the wind.
+  - **No swell:** Open-Meteo's ECMWF feed carries total waves only, even on the ocean. Windy shows ECMWF "Swell 1" from ECMWF's full commercial data. On a lake, swell is mostly leftover wind waves with about a 3 s period, and it's already included in the total. The owner chose hourly ECMWF without swell over MeteoFrance MFWAM, which has swell but is 3-hourly. If an ocean location ever matters, add MFWAM back for swell only, since one request can name both models.
   - **Model choice:** don't pin NCEP GFS Wave, which returns zeros on the Great Lakes.
   - **Cell selection:** `cell_selection=sea` takes the nearest water cell. If that cell is more than 30 km away, the location counts as not near modelled water, and the app says "no forecast near here" instead of borrowing it.
   - **Direction:** given as "from," like wind.
   - **No preview fallback:** without live data, no wave numbers are shown.
-  - **Display only:** waves appear in the scene HUD (swell only from 0.2 m), in the verdict sentence and as a line on the timeline. They never change the rating, because the forecast describes open water a few km out, not the shoreline.
+  - **Display only:** waves appear in the scene HUD, in the verdict sentence and as a line on the timeline. They never change the rating, because the forecast describes open water a few km out, not the shoreline.
 - **Settings** (location, mode, each mode's gust limits, city glow) are saved in `localStorage`. Note that the desktop app's file preview blocks `localStorage`, so test persistence over a local web server. "Use my location" calls the browser's geolocation, which needs HTTPS.
 
 ## Verdict rules
@@ -141,7 +142,6 @@ A Windy-style map as a second view in the top scene, wave data, and two usage mo
 4. ~~Wind layer: grid for the visible area, animated streaks coloured by speed, following the selected time. With reduced motion, show static arrows.~~ Done.
 5. ~~Wave layer: wave-height colours over water only, a legend, and a Wind / Waves layer switch.~~ Done, including the direction lines below.
    - **Wave direction**, as Windy shows it: slow-moving lines travelling the way the combined waves go, drawn lighter than the wind streaks so the layers can't be confused.
-   - Swell direction appears only when swell is at least 0.2 m, the same rule as the HUD.
    - With reduced motion, show static arrows instead.
    - The marine grid already includes direction, so this costs no extra data.
 6. Polish: loading and failure states per layer, a phone check, and moving this section into Architecture.

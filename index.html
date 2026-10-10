@@ -252,7 +252,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
         <button type="button" data-layer="wind" aria-pressed="true">Wind</button><button type="button" data-layer="waves" aria-pressed="false">Waves</button>
       </div>
       <div class="wlegend" aria-hidden="true"><div class="bar" id="lgbar"></div><div class="lab" id="lglab"></div>
-        <div class="note" id="lgnote" hidden>Lines: wave direction<br><span style="color:#8cd7ff">Blue lines: swell</span></div></div>
+        <div class="note" id="lgnote" hidden>Lines: wave direction</div></div>
       <div class="attrib">Esri, HERE, Garmin, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
     </div>
     <div class="mapnote" id="mapnote" hidden></div>
@@ -490,18 +490,20 @@ function windAt(t){
   const k=Math.round(x);
   return{sus:L(data.sus),gust:L(data.gust),dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[k]:null,temp:L(data.temp)};
 }
-/* Waves: Open-Meteo Marine, best_match (on Lake Ontario that's MeteoFrance MFWAM, ~8 km; NCEP GFS Wave doesn't model
-   the Great Lakes). cell_selection=sea takes the nearest water cell, so a shoreline location gets the cell just offshore.
+/* Waves: Open-Meteo Marine, pinned to ECMWF WAM (9 km, hourly; the model Windy uses). Open-Meteo's ECMWF feed has total
+   waves only, no swell split; on a lake the swell split adds little, and total waves already include leftover waves.
+   (MeteoFrance MFWAM has swell but is 3-hourly; NCEP GFS Wave doesn't model the Great Lakes.)
+   cell_selection=sea takes the nearest water cell, so a shoreline location gets the cell just offshore.
    If that cell is more than 30 km away, the location isn't near modelled water and we say so instead of borrowing it.
    Directions are "from", like wind. There is no preview fallback: no live data means no wave numbers. */
-let marine=null; // {start,h,dir,per,sw,swp,swd,km,fetched} | {none:'far'|'failed'}
+let marine=null; // {start,h,dir,per,km,fetched} | {none:'far'|'failed'}
 async function fetchMarine(){
-  const u=`https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,swell_wave_direction&timeformat=unixtime&timezone=auto&forecast_days=3&cell_selection=sea`;
+  const u=`https://marine-api.open-meteo.com/v1/marine?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wave_height,wave_direction,wave_period&models=ecmwf_wam&timeformat=unixtime&timezone=auto&forecast_days=3&cell_selection=sea`;
   const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
   try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(),h=j.hourly;
     const km=6371*2*Math.asin(Math.sqrt(Math.sin((j.latitude-loc.lat)*DEG/2)**2+Math.cos(loc.lat*DEG)*Math.cos(j.latitude*DEG)*Math.sin((j.longitude-loc.lon)*DEG/2)**2));
     if(km>30||!h.wave_height.some(v=>v!=null)) return{none:'far'};
-    return{start:h.time[0]*1000,h:h.wave_height,dir:h.wave_direction,per:h.wave_period,sw:h.swell_wave_height,swp:h.swell_wave_period,swd:h.swell_wave_direction,km,fetched:Date.now()};
+    return{start:h.time[0]*1000,h:h.wave_height,dir:h.wave_direction,per:h.wave_period,km,fetched:Date.now()};
   }finally{clearTimeout(to)}
 }
 function waveAt(t){
@@ -509,7 +511,7 @@ function waveAt(t){
   const i=Math.floor(x),f=x-i,j=Math.min(i+1,n-1);
   const L=a=>!a||a[i]==null||a[j]==null?null:a[i]+(a[j]-a[i])*f;
   const A=a=>{if(!a||a[i]==null||a[j]==null)return null;const dd=((a[j]-a[i]+540)%360)-180;return(a[i]+dd*f+360)%360};
-  const h=L(marine.h); return h==null?null:{h,per:L(marine.per),dir:A(marine.dir),sw:L(marine.sw),swp:L(marine.swp),swd:A(marine.swd)};
+  const h=L(marine.h); return h==null?null:{h,per:L(marine.per),dir:A(marine.dir)};
 }
 function waveStats(a,b){let sum=0,n=0,max=null;for(let x=a;x<b;x+=10*MIN){const w=waveAt(x);if(!w)continue;sum+=w.h;n++;if(!max||w.h>max.h)max={h:w.h,t:x}}return n?{avg:sum/n,max}:null}
 const m1=h=>h<0.1?'under 0.1 m':`${h.toFixed(1)} m`;
@@ -732,7 +734,7 @@ function hudTick(force){
   $('#cloudl').textContent=cc?`Cloud ${cc.total==null?'—':pc(cc.total)+'%'} · low ${pc(cc.low)} mid ${pc(cc.mid)} high ${pc(cc.high)}`
     :!data?'':data.live?'Cloud: no forecast':'Cloud: no data in preview';
   const wa=waveAt(selT);
-  $('#wavel').textContent=!wavesOn()?'':wa?`Waves ${m1(wa.h)}${wa.per?` · ${Math.round(wa.per)} s`:''}${wa.dir!=null?` · from ${card(wa.dir)}`:''}${wa.sw>=0.2?` · swell ${m1(wa.sw)}`:''}`
+  $('#wavel').textContent=!wavesOn()?'':wa?`Waves ${m1(wa.h)}${wa.per?` · ${Math.round(wa.per)} s`:''}${wa.dir!=null?` · from ${card(wa.dir)}`:''}`
     :!marine?'':marine.none==='far'?'Waves: no forecast near here':marine.none==='failed'?'Waves: didn’t load':'Waves: no forecast';
   const g=$('#gdot');g.style.top=clamp((30-a)/54*100,0,100)+'%';g.classList.toggle('below',a<0);
   $('.scrim').style.opacity=(0.45+0.55*sstep(-14,-4,a)).toFixed(2); // a dark sky doesn't need the full scrim behind the text
@@ -1125,10 +1127,9 @@ const GRID={
   // Waves use the marine model's default cell selection: unmodelled lakes (e.g. Lake Simcoe) come back null and stay
   // uncoloured; points just inland take the nearest offshore cell, which carries colour to the shoreline under the mask.
   waves:{list:[],cur:null,state:'idle',key:'',vec:null,name:'wave',
-    url:(la,lo)=>`https://marine-api.open-meteo.com/v1/marine?latitude=${la}&longitude=${lo}&hourly=wave_height,wave_direction,swell_wave_height,swell_wave_direction&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
+    url:(la,lo)=>`https://marine-api.open-meteo.com/v1/marine?latitude=${la}&longitude=${lo}&hourly=wave_height,wave_direction&models=ecmwf_wam&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
     node:(P,i,k,f)=>{const h=lerp(P.wave_height,i,k,f),d=lerpAng(P.wave_direction,i,k,f);if(h==null||d==null)return null;
-      const sh=lerp(P.swell_wave_height,i,k,f)||0,sd=lerpAng(P.swell_wave_direction,i,k,f);
-      return{h,ux:-Math.sin(d*DEG),uy:-Math.cos(d*DEG),sh,sux:sd==null?0:-Math.sin(sd*DEG),suy:sd==null?0:-Math.cos(sd*DEG)}}}}; // directions are "from"
+      return{h,ux:-Math.sin(d*DEG),uy:-Math.cos(d*DEG)}}}}; // directions are "from"
 const WSTOPS=[[0,[98,138,190]],[10,[86,196,214]],[20,[96,214,140]],[30,[236,214,90]],[40,[244,150,70]],[55,[232,80,90]],[75,[200,90,200]]];
 const HSTOPS=[[0,[40,80,150]],[0.25,[45,130,190]],[0.5,[50,175,200]],[1,[80,205,140]],[1.5,[225,210,90]],[2.5,[240,140,60]],[4,[220,70,90]],[6,[180,80,200]]];
 const ramp=(stops,v)=>{let i=1;while(i<stops.length-1&&v>stops[i][0])i++;const [v0,c0]=stops[i-1],[v1,c1]=stops[i],f=clamp((v-v0)/(v1-v0),0,1);return c0.map((x,j)=>Math.round(x+(c1[j]-x)*f))};
@@ -1193,39 +1194,37 @@ function drawWaveColours(c,W,H,dpr,tz,s,x0,y0){
 const spawn=(p,W,H)=>{p.x=Math.random()*W;p.y=Math.random()*H;p.age=0;p.max=40+Math.random()*70;return p};
 function arrow(c,x,y,ux,uy,L){const tx=x+ux*L/2,ty=y+uy*L/2;c.moveTo(x-ux*L/2,y-uy*L/2);c.lineTo(tx,ty);c.moveTo(tx,ty);c.lineTo(tx-ux*5-uy*3.5,ty-uy*5+ux*3.5);c.moveTo(tx,ty);c.lineTo(tx-ux*5+uy*3.5,ty-uy*5-ux*3.5)}
 /* Animation on the overlay canvas. Wind: streaks drifting with the local wind (about 36 px/s at 20 km/h), coloured by
-   speed, ~1 per 220 px². Waves: slower white lines travelling the way the waves go, plus pale blue lines for swell where
-   it is at least 0.2 m, cut to the water mask each frame. Trails fade each frame; moving the map clears them.
+   speed, ~1 per 220 px². Waves: slower white lines travelling the way the waves go, cut to
+   the water mask each frame. Trails fade each frame; moving the map clears them.
    With reduced motion, static arrows instead, redrawn only when something changes. */
 function mapAnimStep(){
   const W=windCv.clientWidth,H=windCv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(!W)return;
   if(windCv.width!==Math.round(W*dpr)||windCv.height!==Math.round(H*dpr)){windCv.width=Math.round(W*dpr);windCv.height=Math.round(H*dpr);parts=[];windDrawnKey=''}
   const c=wctx,waves=mapLayer==='waves',G=GRID[mapLayer],g=G.cur,nodes=nodesOf(mapLayer),cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);
-  const keys=waves?['h','ux','uy','sh','sux','suy']:['u','v','s'],at=(x,y)=>sampleAt(g,nodes,keys,x,y,W,H,cx,cy);
+  const keys=waves?['h','ux','uy']:['u','v','s'],at=(x,y)=>sampleAt(g,nodes,keys,x,y,W,H,cx,cy);
   const clip=()=>{if(waves&&maskReady&&!maskBroken){c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='destination-in';c.drawImage(maskCv,0,0);c.globalCompositeOperation='source-over';c.setTransform(dpr,0,0,dpr,0,0)}};
   c.setTransform(dpr,0,0,dpr,0,0);
   if(reduce){
     const key=`${mapLayer}|${G.key}|${cx}|${cy}|${mapZ}|${W}x${H}`;if(key===windDrawnKey)return;windDrawnKey=key;c.clearRect(0,0,W,H);if(!nodes)return;
     c.lineWidth=1.5;
     for(let y=24;y<H;y+=44)for(let x=24;x<W;x+=44){const w=at(x,y);if(!w)continue;
-      if(waves){c.strokeStyle='rgba(255,255,255,.8)';c.beginPath();arrow(c,x,y,w.ux,-w.uy,14);c.stroke();
-        if(w.sh>=0.2){c.strokeStyle='rgba(140,215,255,.9)';c.beginPath();arrow(c,x+10,y+10,w.sux,-w.suy,12);c.stroke()}}
+      if(waves){c.strokeStyle='rgba(255,255,255,.8)';c.beginPath();arrow(c,x,y,w.ux,-w.uy,14);c.stroke();}
       else if(w.s>=0.5){c.strokeStyle=WCOLS[wcolIdx(w.s)];c.beginPath();arrow(c,x,y,w.u/w.s,-w.v/w.s,8+Math.min(w.s,50)*0.3);c.stroke()}}
     clip();return}
   c.globalCompositeOperation='destination-out';c.fillStyle=`rgba(0,0,0,${waves?0.06:0.085})`;c.fillRect(0,0,W,H);c.globalCompositeOperation='source-over';
   if(!nodes)return;
   const want=waves?Math.min(700,Math.round(W*H/420)):Math.min(1200,Math.round(W*H/220));
-  while(parts.length<want){const p=spawn({},W,H);p.k=parts.length%3===2?'s':'w';parts.push(p)}parts.length=want;
+  while(parts.length<want)parts.push(spawn({},W,H));parts.length=want;
   const paths=new Map();c.lineCap='round';
   for(const p of parts){
     const w=p.age++<p.max&&at(p.x,p.y);if(!w){spawn(p,W,H);continue}
     let nx,ny,band;
     if(!waves){nx=p.x+w.u*0.06;ny=p.y-w.v*0.06;band=wcolIdx(w.s)}
-    else if(p.k==='s'){if(w.sh<0.2){spawn(p,W,H);continue}const m=Math.hypot(w.sux,w.suy)||1,sp=0.45+0.12*Math.min(w.sh,3);nx=p.x+w.sux/m*sp;ny=p.y-w.suy/m*sp;band='s'}
     else{const m=Math.hypot(w.ux,w.uy)||1,sp=0.35+0.15*Math.min(w.h,3);nx=p.x+w.ux/m*sp;ny=p.y-w.uy/m*sp;band='w'}
     let path=paths.get(band);if(!path)paths.set(band,path=new Path2D());
     path.moveTo(p.x,p.y);path.lineTo(nx,ny);p.x=nx;p.y=ny;if(nx<0||ny<0||nx>W||ny>H)spawn(p,W,H);
   }
-  paths.forEach((path,band)=>{c.lineWidth=waves?1:1.25;c.strokeStyle=band==='w'?'rgba(255,255,255,.6)':band==='s'?'rgba(140,215,255,.8)':WCOLS[band];c.stroke(path)});
+  paths.forEach((path,band)=>{c.lineWidth=waves?1:1.25;c.strokeStyle=band==='w'?'rgba(255,255,255,.6)':WCOLS[band];c.stroke(path)});
   clip();
 }
 function updateMapNote(){
@@ -1280,7 +1279,7 @@ function renderData(){const chip=$('#datachip'),note=$('#datanote');
     note.innerHTML=`Hourly forecast from Open-Meteo for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
   else{chip.className='chip preview';chip.textContent='Preview wind';
     note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}
-  if(data&&wavesOn()) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from Open-Meteo Marine (about 8 km grid, so approximate near shore).'
+  if(data&&wavesOn()) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from ECMWF’s wave model via Open-Meteo (hourly, about 9 km grid, so approximate near shore).'
     :marine.none==='far'?' No wave forecast covers this location.':' The wave forecast didn’t load.');
   $('#lgw').hidden=!(wavesOn()&&marine&&marine.h)}
 // Forecast refresh: refetch when the forecast is older than 30 minutes or didn't load, checked every minute
