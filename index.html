@@ -186,6 +186,7 @@ button.chip{font:inherit;font-family:var(--mono);font-size:11px;cursor:pointer;t
 .tltable b{display:block;font-weight:600}
 .tltable .g{display:block;color:var(--dim)}
 .tltable .w{display:block;color:#7fd3e6}
+.tltable .t{display:block;color:var(--fg);opacity:.75}
 .tl-sub{display:block;font-family:var(--body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--dim);margin-top:2px}
 .tl-head .tl-title{min-width:0}
 .nowbtn{flex:none;white-space:nowrap;border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer}
@@ -288,6 +289,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     <div class="hud hud-time">
       <div class="clock" id="clock">6:55<small>am</small></div>
       <div class="phase" id="phase">Civil twilight</div>
+      <div class="alt" id="templ"></div>
       <div class="alt" id="alt">Sun 3.1° below the horizon</div>
       <div class="alt" id="cloudl"></div>
       <div class="alt" id="wavel"></div>
@@ -345,7 +347,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <span><i class="sw" style="background:var(--nogo)"></i>Rough</span>
       <span id="lgw" hidden><i class="sw" style="background:#7fd3e6;height:2px"></i>Waves (right scale)</span>
       <span>Bars: sustained wind · ticks: gusts · dashed lines: your calm and rough gust limits · faded: outside daylight</span>
-      <span class="lgnum">Numbers per 3 h: average wind, <span style="color:var(--dim)">strongest gust</span> (km/h)<span id="lgwn">, <span style="color:#7fd3e6">highest waves</span> (m)</span></span>
+      <span class="lgnum">Numbers per 3 h: average wind, <span style="color:var(--dim)">strongest gust</span> (km/h)<span id="lgwn">, <span style="color:#7fd3e6">highest waves</span> (m)</span>, average temperature (°C)</span>
     </div>
     <p class="note" id="datanote"></p>
   </section>
@@ -516,10 +518,10 @@ function previewData(){
   return{start:PREVIEW_START,sus,gust,dir,pop,temp:null,live:false};
 }
 async function fetchLive(){
-  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m,apparent_temperature,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
   const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
   try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(); const h=j.hourly;
-    return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,
+    return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,feel:h.apparent_temperature,
       cc:h.cloud_cover,cl:h.cloud_cover_low,cm:h.cloud_cover_mid,ch:h.cloud_cover_high,live:true,fetched:Date.now()};
   }finally{clearTimeout(to)}
 }
@@ -531,7 +533,7 @@ function windAt(t){
   // Open-Meteo: wind speed is instantaneous at each hour (interpolate), but gusts are the maximum over the preceding hour
   // and rain chance covers the preceding hour, so a moment inside hour [i, i+1) takes the value stamped i+1, unblended.
   // (Blending gusts at half past shaved peaks off the chart and made it disagree with the 3-hour numbers.)
-  return{sus:L(data.sus),gust:data.gust[j]==null?null:data.gust[j],dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[j]:null,temp:L(data.temp)};
+  return{sus:L(data.sus),gust:data.gust[j]==null?null:data.gust[j],dir:(d1+dd*f+360)%360,pop:data.pop?data.pop[j]:null,temp:L(data.temp),feel:L(data.feel)}; // both instantaneous: interpolate
 }
 /* Waves: Open-Meteo Marine, pinned to ECMWF WAM (9 km, hourly; the model Windy uses). Open-Meteo's ECMWF feed has total
    waves only, no swell split; on a lake the swell split adds little, and total waves already include leftover waves.
@@ -764,11 +766,11 @@ function renderTlTable(d0,span,dawn,dusk){
   const el=$('#tltable'),key=`${d0}|${span}|${data&&data.fetched}|${marine&&marine.fetched}|${MODE}|${LIM.good}/${LIM.rough}`;
   if(key!==tlKey){tlKey=key;let html='';
     for(let k=0;k<8;k++){
-      const a=d0+k*span/8,b=a+span/8;let sum=0,n=0,gmax=null,wmax=null,worst=3;
-      for(let t=a+5*MIN;t<b;t+=10*MIN){const w=windAt(t);if(w){sum+=w.sus;n++;gmax=Math.max(gmax??0,w.gust);worst=Math.min(worst,status(w))}
+      const a=d0+k*span/8,b=a+span/8;let sum=0,n=0,gmax=null,wmax=null,worst=3,tsum=0,tn=0;
+      for(let t=a+5*MIN;t<b;t+=10*MIN){const w=windAt(t);if(w){sum+=w.sus;n++;gmax=Math.max(gmax??0,w.gust);worst=Math.min(worst,status(w));if(w.temp!=null){tsum+=w.temp;tn++}}
         const v=wavesOn()&&waveAt(t);if(v)wmax=Math.max(wmax??0,v.h)}
       const col=worst===2?'var(--go)':worst===1?'var(--maybe)':worst===0?'var(--nogo)':'var(--dim)';
-      html+=`<div class="c${b<=dawn||a>=dusk?' night':''}"><b style="color:${col}">${n?Math.round(sum/n):'–'}</b><span class="g">${gmax!=null?Math.round(gmax):'–'}</span>${wavesOn()?`<span class="w">${wmax!=null?wmax.toFixed(1):'–'}</span>`:''}</div>`;
+      html+=`<div class="c${b<=dawn||a>=dusk?' night':''}"><b style="color:${col}">${n?Math.round(sum/n):'–'}</b><span class="g">${gmax!=null?Math.round(gmax):'–'}</span>${wavesOn()?`<span class="w">${wmax!=null?wmax.toFixed(1):'–'}</span>`:''}<span class="t">${tn?Math.round(tsum/tn)+'°':'–'}</span></div>`;
     }
     el.innerHTML=html;$('#lgwn').hidden=!wavesOn();
   }
@@ -795,7 +797,10 @@ function hudTick(force){
   $('#phase').textContent=tw?`${am?'Morning':'Evening'} ${ph.toLowerCase()}`:ph;
   $('#tltime').textContent=fmt(d); // the timeline gets its own readout: the scene's clock is scrolled out of view down here
   {const wv=windAt(selT),wz=wavesOn()&&waveAt(selT); // exact values at the selected time, for the timeline header
-   $('#tlvals').textContent=wv?`Wind ${Math.round(wv.sus)} · gusts ${Math.round(wv.gust)} km/h${wz?` · waves ${wz.h.toFixed(1)} m`:''}`:''}
+   const tC=wv&&wv.temp!=null?Math.round(wv.temp):null;
+   $('#tlvals').textContent=wv?`Wind ${Math.round(wv.sus)} · gusts ${Math.round(wv.gust)} km/h${wz?` · waves ${wz.h.toFixed(1)} m`:''}${tC!=null?` · ${tC}°C`:''}`:'';
+   // air temperature, plus "feels like" only when wind or humidity make a real difference (2° or more)
+   $('#templ').textContent=tC==null?'':`${tC}°C${wv.feel!=null&&Math.abs(wv.feel-wv.temp)>=2?` · feels ${Math.round(wv.feel)}°`:''}`}
   $('#tlsub').textContent=`${ph==='Blue hour'?`${am?'Morning':'Evening'} civil twilight, blue hour`:$('#phase').textContent} · sun ${a>=0?'':'−'}${Math.abs(a).toFixed(1)}°`;
   $('#alt').textContent=(Math.abs(a)<0.9?'Sun on the horizon':a>=0?`Sun ${a.toFixed(1)}° above the horizon`:`Sun ${Math.abs(a).toFixed(1)}° below the horizon`)+(ph==='Blue hour'?' · civil twilight':'');
   const cc=cloudAt(selT),pc=v=>Math.round(v*100);
