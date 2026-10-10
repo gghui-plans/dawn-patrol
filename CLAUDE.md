@@ -20,6 +20,9 @@ It is a personal project. The owner opens it from a home-screen icon to check th
 - **Map view** (the Sky | Map toggle at the top of the scene) is a small hand-written tile map of Esri's World Dark Gray Canvas: a base layer plus a label layer, combined per tile. There's no library.
   - **Gestures:** one finger pans and two fingers pinch-zoom. On desktop, ctrl+scroll (or trackpad pinch) and double-click zoom.
   - **Controls:** a Recentre button appears once you've moved away. The time strip works in both views.
+  - **Choosing a location:** a pin is fixed at the map centre and the map moves under it, which is easier on a phone than dragging a small pin under a finger. The picking bar shows live coordinates, an optional name ("Pinned spot" if left blank), and Cancel / Use this spot, which saves it like typed coordinates.
+    - Entry points: the map's "Set location" button, tapping the location chip, or "Pick on map" in settings.
+    - Switching to the sky view cancels picking.
   - **Drawing:** the map redraws only when something changes, and the WebGL sky pauses while it shows.
   - **Legibility:** overlay text sits on frosted dark panels (time, wind readout, and one panel holding the layer switch, legend and credit), so it reads over streaks, colours and place names.
     - The sun-angle and cloud lines are hidden on the map; they stay in the sky view.

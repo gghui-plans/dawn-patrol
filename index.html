@@ -97,6 +97,18 @@ button{font:inherit;color:inherit}
 .scene.mapmode .hud-wind{left:12px}
 .mapbtn{position:absolute;z-index:4;right:12px;bottom:118px;border:1px solid rgba(255,255,255,.25);background:rgba(3,6,14,.7);color:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}
 .scene:not(.mapmode) .mapbtn{display:none}
+#pickstart{bottom:44px}
+/* choosing a location: a pin fixed at the map centre (its tip is the spot), with the map panned under it */
+.pickpin,.pickbar{display:none}
+.scene.picking .pickpin{display:block;position:absolute;z-index:5;left:50%;top:50%;width:30px;height:40px;margin:-40px 0 0 -15px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));pointer-events:none}
+.scene.picking .pickbar{display:grid;gap:8px;position:absolute;z-index:5;left:12px;right:12px;bottom:36px;padding:10px;border-radius:12px;background:rgba(9,14,26,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);color:#fff}
+.scene.picking .hud-wind,.scene.picking #recentre,.scene.picking #pickstart{display:none}
+.pickrow{display:flex;gap:8px;align-items:center}
+.pickcoord{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.pickbar input{flex:1;min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:7px 9px;color:#fff;font:inherit;font-size:13px}
+.pbtn{flex:1;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;border-radius:999px;padding:8px 10px;font-size:13.5px;cursor:pointer}
+.pbtn.primary{background:var(--sun);border-color:var(--sun);color:#1a1205;font-weight:700}
+#locchip{cursor:pointer}
 .attrib{text-align:right;line-height:1.3;font-size:8.5px;color:rgba(255,255,255,.6)}
 .attrib a{color:inherit}
 .mapnote{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12.5px;padding:6px 12px;border-radius:999px;background:rgba(3,6,14,.7);color:#fff;white-space:nowrap}
@@ -214,7 +226,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
   <header class="top">
     <div class="brand"><i aria-hidden="true"></i>Dawn Patrol</div>
     <div class="chips">
-      <span class="chip" id="locchip"><b>Toronto</b> 43.65, −79.38</span>
+      <span class="chip" id="locchip" role="button" tabindex="0" title="Choose a location on the map"><b>Toronto</b> 43.65, −79.38</span>
       <span class="chip" id="datachip">Loading wind</span>
     </div>
   </header>
@@ -229,6 +241,12 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     </div>
     <div class="dots" aria-hidden="true"><i class="on"></i><i></i></div>
     <button class="mapbtn" id="recentre" type="button" hidden>Recentre</button>
+    <button class="mapbtn mapui" id="pickstart" type="button">Set location</button>
+    <svg class="pickpin" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 3 24 3 15a12 12 0 0 1 24 0c0 9-12 24-12 24z" fill="#f4a259" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="4.5" fill="#fff"/></svg>
+    <div class="pickbar" role="group" aria-label="Choose a location">
+      <div class="pickrow"><span class="pickcoord" id="pickcoord">—</span><input id="pickname" type="text" placeholder="Name (optional)" maxlength="40" autocomplete="off" aria-label="Location name"></div>
+      <div class="pickrow"><button type="button" class="pbtn" id="pickcancel">Cancel</button><button type="button" class="pbtn primary" id="pickuse">Use this spot</button></div>
+    </div>
     <div class="mapcard mapui">
       <div class="layertog" role="group" aria-label="Map layer">
         <button type="button" data-layer="wind" aria-pressed="true">Wind</button><button type="button" data-layer="waves" aria-pressed="false">Waves</button>
@@ -327,6 +345,7 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
       <div class="btns">
         <button class="btn primary" id="lsave" type="button">Save location</button>
         <button class="btn" id="lgeo" type="button">Use my location</button>
+        <button class="btn" id="lpick" type="button">Pick on map</button>
         <span class="msg" id="lmsg" role="status"></span>
       </div>
       <div class="fr">
@@ -1063,6 +1082,7 @@ function drawMap(){
   c.beginPath();c.arc(mx,my,4.5,0,7);c.fillStyle='#f4a259';c.fill();c.lineWidth=1.5;c.strokeStyle='#fff';c.stroke();
   $('#recentre').hidden=Math.hypot(mx-W/2,my-H/2)<24&&Math.abs(mapZ-MAP_Z0)<0.25;
   ovT=Math.floor(selT/MIN);updateMapNote();
+  if(picking)$('#pickcoord').textContent=`${llTxt(mapC.lat)}, ${llTxt(((mapC.lon+540)%360)-180)}`; // the spot under the pin
   const vk=`${mapC.lat}|${mapC.lon}|${mapZ}|${W}x${H}`;
   if(vk!==mapViewKey){mapViewKey=vk;windDrawnKey='';scheduleGrid(); // only a real move clears trails and (once settled) checks the data grid;
     wctx.setTransform(1,0,0,1,0,0);wctx.clearRect(0,0,windCv.width,windCv.height)} // time-only redraws must not keep resetting that timer
@@ -1227,11 +1247,26 @@ function applyLayer(){ // ...but land mode shows wind only, and returns to the c
 document.querySelectorAll('.layertog button').forEach(b=>b.onclick=()=>setLayer(b.dataset.layer));
 function setView(v){
   mapOn=v==='map';$('#scene').classList.toggle('mapmode',mapOn);mapDirty=true;if(mapOn)setTimeout(()=>ensureGrid(mapLayer),0);
+  if(!mapOn&&picking)endPick();
   document.querySelectorAll('.viewtog button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));
   document.querySelectorAll('.dots i').forEach((d,k)=>d.classList.toggle('on',k===(mapOn?1:0)));
 }
 document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 applyLayer();
+/* Choosing a location on the map: a pin fixed at the map centre, with the map panned and zoomed under it (easier on a
+   phone than dragging a small pin under a finger). Entry: the map's "Set location" button, the location chip, or
+   "Pick on map" in settings. "Use this spot" saves it like typed coordinates would. */
+let picking=false;
+const llTxt=(v,dp=4)=>v.toFixed(dp).replace('-','−');
+function startPick(){
+  setView('map');picking=true;$('#scene').classList.add('picking');$('#pickname').value='';mapDirty=true;
+  $('#scene').scrollIntoView({block:'start',behavior:reduce?'auto':'smooth'});
+}
+function endPick(){picking=false;$('#scene').classList.remove('picking');mapDirty=true}
+$('#pickstart').onclick=startPick;$('#lpick').onclick=startPick;$('#pickcancel').onclick=endPick;
+$('#locchip').onclick=startPick;$('#locchip').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();startPick()}};
+$('#pickuse').onclick=()=>{const lat=+mapC.lat.toFixed(4),lon=+(((mapC.lon+540)%360)-180).toFixed(4);endPick();
+  applyLoc({name:$('#pickname').value.trim()||'Pinned spot',lat,lon});$('#lmsg').textContent='Saved.'};
 
 /* ---------- settings ---------- */
 function renderLoc(){
