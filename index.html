@@ -251,13 +251,17 @@ label.f.chk{display:flex;align-items:flex-start;gap:8px}
     <div class="brand"><i aria-hidden="true"></i>Dawn Patrol</div>
     <div class="chips">
       <button type="button" class="chip" id="locchip" aria-haspopup="true" aria-expanded="false" aria-controls="locmenu"><b>Toronto</b> 43.65, −79.38</button>
-      <span class="chip" id="datachip">Loading wind</span>
+      <button type="button" class="chip" id="datachip" aria-haspopup="true" aria-expanded="false" aria-controls="modelmenu">Loading wind</button>
     </div>
     <div class="locmenu" id="locmenu" role="menu" aria-label="Saved locations" hidden>
       <div id="loclist"></div>
       <button type="button" class="lm-act" id="lmadd" role="menuitem">＋ Add a spot on the map</button>
       <button type="button" class="lm-act" id="lmgeo" role="menuitem">◎ Use my location</button>
       <div class="lm-msg" id="lmmsg" role="status"></div>
+    </div>
+    <div class="locmenu" id="modelmenu" role="menu" aria-label="Wind model" hidden>
+      <div class="lm-msg">Wind and weather model. Waves always use ECMWF's wave model.</div>
+      <div id="modellist"></div>
     </div>
   </header>
 
@@ -481,6 +485,14 @@ let MODE=store.get('dp.mode','water'); if(!LIMS[MODE]) MODE='water';
 let LIM=LIMS[MODE];
 const wavesOn=()=>MODE==='water';
 let GLOW=store.get('dp.glow',true); // city glow on the night horizon
+/* Wind/weather model (Open-Meteo `models=`), chosen from the "Live wind" chip. It drives the spot forecast (wind, gusts,
+   rain, temperature, clouds) and the map's wind grid; waves stay on ECMWF WAM. Canada uses gem_seamless because HRDPS
+   alone stops after ~51 h and has no rain chance; seamless runs HRDPS for 2 days, then GEM regional. */
+const WMODELS={
+  best_match:{short:'Auto',name:'Auto (best match)',desc:'Open-Meteo picks per location. Around Toronto: NOAA HRRR 3 km for 2 days, then GFS.',note:'best match'},
+  gem_seamless:{short:'Canada',name:'Canada (HRDPS → GEM)',desc:'Environment Canada: HRDPS 2.5 km for 2 days, then GEM regional.',note:'Canada HRDPS / GEM'},
+  ecmwf_ifs:{short:'ECMWF',name:'ECMWF',desc:'European IFS 9 km, Windy’s default. Its gusts tend to run higher.',note:'ECMWF IFS'}};
+let WMODEL=store.get('dp.wmodel','best_match');if(!WMODELS[WMODEL])WMODEL='best_match';
 let data=null, loading=true, dayIdx=0, follow=true, selT=Date.now();
 const dayStart=i=>{const w=wall(Date.now());return zoned(w.y,w.mo,w.d+i)}; // local midnight at the location
 // Sun event times for day i. SunCalc's getTimes uses the sun's declination at noon for the whole day, which can put
@@ -518,7 +530,7 @@ function previewData(){
   return{start:PREVIEW_START,sus,gust,dir,pop,temp:null,live:false};
 }
 async function fetchLive(){
-  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m,apparent_temperature,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,temperature_2m,apparent_temperature,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&models=${WMODEL}&wind_speed_unit=kmh&timeformat=unixtime&timezone=auto&forecast_days=3`;
   const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),7000);
   try{const r=await fetch(u,{signal:ctl.signal}); if(!r.ok) throw new Error(r.status); const j=await r.json(); const h=j.hourly;
     return{tz:j.timezone,start:h.time[0]*1000,sus:h.wind_speed_10m,gust:h.wind_gusts_10m,dir:h.wind_direction_10m,pop:h.precipitation_probability,temp:h.temperature_2m,feel:h.apparent_temperature,
@@ -1194,7 +1206,7 @@ const lerpAng=(a,i,k,f)=>a[i]==null||a[k]==null?null:a[i]+(((a[k]-a[i]+540)%360)
 // Two grid sources with one fetch/cache/sample path. Each node gives the values its layer draws, at the selected time.
 const GRID={
   wind:{list:[],cur:null,state:'idle',key:'',vec:null,name:'wind',
-    url:(la,lo)=>`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
+    url:(la,lo)=>`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&hourly=wind_speed_10m,wind_direction_10m&models=${WMODEL}&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=3&timezone=${encodeURIComponent(loc.tz||'auto')}`,
     node:(P,i,k,f)=>{const s=lerp(P.wind_speed_10m,i,k,f),d=lerpAng(P.wind_direction_10m,i,k,f);if(s==null||d==null)return null;
       return{u:-s*Math.sin(d*DEG),v:-s*Math.cos(d*DEG),s}}},                        // u east, v north: where it blows to
   // Waves use the marine model's default cell selection: unmodelled lakes (e.g. Lake Simcoe) come back null and stay
@@ -1213,7 +1225,8 @@ const LEGEND={wind:{bar:'linear-gradient(90deg,#628abe 0%,#56c4d6 16.7%,#60d68c 
 function viewBounds(){const W=mapCv.clientWidth,H=mapCv.clientHeight,cx=lon2x(mapC.lon,mapZ),cy=lat2y(mapC.lat,mapZ);
   return{n:y2lat(cy-H/2,mapZ),s:y2lat(cy+H/2,mapZ),w:x2lon(cx-W/2,mapZ),e:x2lon(cx+W/2,mapZ)}}
 const covers=(g,b)=>b.n<=g.n&&b.s>=g.s&&b.w>=g.w&&b.e<=g.e&&g.e-g.w<=(b.e-b.w)*3; // and not >3× coarser than the view
-function pickGrid(G){const b=viewBounds(),now=Date.now();G.list=G.list.filter(g=>now-g.fetched<HOUR&&g.loc===loc);return G.list.find(g=>covers(g,b))||null}
+function pickGrid(G){const b=viewBounds(),now=Date.now();G.list=G.list.filter(g=>now-g.fetched<HOUR&&g.loc===loc); // other models' grids stay cached
+  return G.list.find(g=>(G!==GRID.wind||g.model===WMODEL)&&covers(g,b))||null}
 function scheduleGrid(){clearTimeout(gTimer);gTimer=setTimeout(()=>ensureGrid(mapLayer),600)}
 async function ensureGrid(kind){
   if(!mapOn||!mapC)return;const G=GRID[kind],have=pickGrid(G);if(have){if(G.cur!==have){G.cur=have;mapDirty=true}return}
@@ -1224,7 +1237,7 @@ async function ensureGrid(kind){
   G.state='loading';updateMapNote();
   try{
     const r=await fetch(G.url(lats,lons));if(!r.ok)throw new Error(r.status);let j=await r.json();if(!Array.isArray(j))j=[j];
-    Object.assign(g,{start:j[0].hourly.time[0]*1000,len:j[0].hourly.time.length,pts:j.map(p=>p.hourly),fetched:Date.now()});
+    Object.assign(g,{start:j[0].hourly.time[0]*1000,len:j[0].hourly.time.length,pts:j.map(p=>p.hourly),fetched:Date.now(),model:WMODEL});
     G.list.unshift(g);G.list.length=Math.min(G.list.length,6);G.state='ok';G.cur=pickGrid(G)||g;
   }catch(e){G.state='failed'}
   G.inflight=false;windDrawnKey='';mapDirty=true;updateMapNote();
@@ -1347,10 +1360,10 @@ function renderLoc(){
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtWhen=d=>d>=dayStart(0)?fmt(d):`${fmt(d)}, ${fmtDate(d,{month:'short',day:'numeric'})}`;
 function renderData(){const chip=$('#datachip'),note=$('#datanote');
-  if(!data){chip.className='chip';chip.textContent='Loading wind';note.textContent=`Loading the hourly forecast from Open-Meteo for ${loc.name}…`}
-  else if(data.live){chip.className='chip live';chip.textContent='Live wind · Open-Meteo';
-    note.innerHTML=`Hourly forecast from Open-Meteo for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
-  else{chip.className='chip preview';chip.textContent='Preview wind';
+  if(!data){chip.className='chip';chip.innerHTML=`Loading wind · ${WMODELS[WMODEL].short}<span class="caret" aria-hidden="true">▾</span>`;note.textContent=`Loading the hourly forecast from Open-Meteo for ${loc.name}…`}
+  else if(data.live){chip.className='chip live';chip.innerHTML=`Live wind · ${WMODELS[WMODEL].short}<span class="caret" aria-hidden="true">▾</span>`;
+    note.innerHTML=`Hourly forecast from Open-Meteo (${WMODELS[WMODEL].note}) for ${esc(loc.name)}, updated ${fmtWhen(new Date(data.fetched))}.`+(data.refreshFailed?' <b>The latest refresh didn’t load, so this may be out of date.</b>':'')}
+  else{chip.className='chip preview';chip.innerHTML='Preview wind<span class="caret" aria-hidden="true">▾</span>';
     note.innerHTML=`<b>Preview wind.</b> The live forecast didn't load, so the hourly wind here is a fixed estimate for Toronto: Windy's daily speed and gust figures for Oct 9 to 11, 2026, spread across a typical day (calmest at dawn, peaking mid-afternoon). Other days show no wind. Sun, moon and twilight times are calculated exactly for ${esc(loc.name)}. The app tries the live forecast again when you come back to it.`}
   if(data&&wavesOn()) note.insertAdjacentText('beforeend',!marine?'':marine.h?' Waves from ECMWF’s wave model via Open-Meteo (hourly, about 9 km grid, so approximate near shore).'
     :marine.none==='far'?' No wave forecast covers this location.':' The wave forecast didn’t load.');
@@ -1416,10 +1429,26 @@ function renderLocMenu(){
 }
 function openLocMenu(){renderLocMenu();$('#lmmsg').textContent='';$('#locmenu').hidden=false;$('#locchip').setAttribute('aria-expanded','true')}
 function closeLocMenu(){$('#locmenu').hidden=true;$('#locchip').setAttribute('aria-expanded','false')}
-$('#locchip').onclick=e=>{e.stopPropagation();$('#locmenu').hidden?openLocMenu():closeLocMenu()};
+$('#locchip').onclick=e=>{e.stopPropagation();closeModelMenu();$('#locmenu').hidden?openLocMenu():closeLocMenu()};
 $('#locmenu').onclick=e=>e.stopPropagation();
-document.addEventListener('click',()=>{if(!$('#locmenu').hidden)closeLocMenu()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#locmenu').hidden){closeLocMenu();$('#locchip').focus()}});
+// Wind model menu on the "Live wind" chip. Switching clears the old numbers first, so one model's forecast is never
+// shown under another's name, then refetches the spot forecast and (lazily) the map grid for the new model.
+function renderModelMenu(){
+  $('#modellist').innerHTML=Object.entries(WMODELS).map(([k,m])=>`<div class="lm-item${k===WMODEL?' cur':''}"><button type="button" class="pick" role="menuitemradio" aria-checked="${k===WMODEL}" data-m="${k}"><span class="nm">${k===WMODEL?'<span class="tick">✓</span>':''}${m.name}</span><span class="ll" style="font-family:var(--body);white-space:normal">${m.desc}</span></button></div>`).join('');
+  $('#modellist').querySelectorAll('.pick').forEach(b=>b.onclick=()=>{closeModelMenu();setModel(b.dataset.m)});
+}
+function setModel(k){
+  if(k===WMODEL||!WMODELS[k])return;WMODEL=k;store.set('dp.wmodel',k);
+  data=null;GRID.wind.cur=null;GRID.wind.key='';windDrawnKey='';mapDirty=true;loadData();renderData();renderVerdict();drawTL();hudTick(true);
+  if(mapOn)setTimeout(()=>ensureGrid(mapLayer),0);
+}
+function openModelMenu(){renderModelMenu();$('#modelmenu').hidden=false;$('#datachip').setAttribute('aria-expanded','true')}
+function closeModelMenu(){$('#modelmenu').hidden=true;$('#datachip').setAttribute('aria-expanded','false')}
+$('#datachip').onclick=e=>{e.stopPropagation();closeLocMenu();$('#modelmenu').hidden?openModelMenu():closeModelMenu()};
+$('#modelmenu').onclick=e=>e.stopPropagation();
+document.addEventListener('click',()=>{if(!$('#locmenu').hidden)closeLocMenu();if(!$('#modelmenu').hidden)closeModelMenu()});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
+  if(!$('#locmenu').hidden){closeLocMenu();$('#locchip').focus()}if(!$('#modelmenu').hidden){closeModelMenu();$('#datachip').focus()}});
 $('#lmadd').onclick=()=>{closeLocMenu();startPick()};
 $('#lmgeo').onclick=()=>{const m=$('#lmmsg');if(!navigator.geolocation){m.textContent='Location isn’t available here.';return}
   m.textContent='Asking for your location…';

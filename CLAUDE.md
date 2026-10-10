@@ -59,6 +59,11 @@ It is a personal project. The owner opens it from a home-screen icon to check th
   - Moon position, illumination and phase are still SunCalc.
 - **Wind data** comes from the Open-Meteo hourly forecast: free, no API key, and free for non-commercial use.
   - It fetches 3 days of hourly speed, gusts, direction, precipitation chance, air temperature, apparent ("feels like") temperature and cloud cover (total, low, mid, high), with wind in km/h. The preview fallback has no cloud data, so it shows a clear sky and the HUD says "no data in preview."
+  - **Model switch** (tap the "Live wind" chip): Auto (`best_match`, the default; NOAA HRRR then GFS around Toronto), Canada (`gem_seamless`: HRDPS 2.5 km for 2 days, then GEM regional) and ECMWF (`ecmwf_ifs`, Windy's default). Saved as `dp.wmodel`.
+    - **Why not HRDPS alone:** it stops after about 51 hours and has no rain chance.
+    - **Scope:** the model drives the spot forecast (wind, gusts, rain, temperature, clouds) and the map's wind grid, and map grids are cached per model. Waves stay on ECMWF WAM.
+    - **Switching** clears the old numbers first, so one model's forecast is never shown under another's name.
+    - **How they differ at the owner's spots:** steady wind agrees within a few km/h at Humber and Pickering; Lake Wilcox differs more. ECMWF gusts run about 10 km/h higher than the other two.
   - **Value timing:** Open-Meteo gives wind speed as an instant at each hour, so it's interpolated. Gusts are the maximum over the preceding hour, and rain chance covers the preceding hour, so `windAt()` gives any moment in hour [i, i+1) the value stamped i+1, unblended. Blending gusts shaved peaks off the chart and made the verdict slightly too generous.
   - While the first fetch is in flight, the UI shows a loading state, not preview data.
   - If the fetch fails, `previewData()` supplies a fixed Toronto estimate pinned to Oct 9–11 2026, and the UI labels it as preview data. Days outside those dates show no wind.
